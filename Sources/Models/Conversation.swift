@@ -157,10 +157,26 @@ final class ConversationState: Identifiable {
                 .toolCall(ToolCallContent(tool: name, toolUseId: id, summary: "", detail: ""))
             )
 
-        case .contentBlockStop:
+        case .thinkingDelta(let text):
+            // Append to current thinking block
             let blockCount = messages[idx].blocks.count
             if blockCount > 0,
-               case .toolCall(var content) = messages[idx].blocks[blockCount - 1],
+               case .thinking(var content) = messages[idx].blocks[blockCount - 1] {
+                content.text += text
+                messages[idx].blocks[blockCount - 1] = .thinking(content)
+            }
+
+        case .contentBlockStop:
+            let blockCount = messages[idx].blocks.count
+            guard blockCount > 0 else { break }
+            // Mark thinking block as complete
+            if case .thinking(var content) = messages[idx].blocks[blockCount - 1] {
+                content.isComplete = true
+                content.endTime = Date()
+                messages[idx].blocks[blockCount - 1] = .thinking(content)
+            }
+            // Extract tool call summary
+            if case .toolCall(var content) = messages[idx].blocks[blockCount - 1],
                !content.inputJson.isEmpty {
                 content.extractSummary()
                 messages[idx].blocks[blockCount - 1] = .toolCall(content)

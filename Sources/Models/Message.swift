@@ -109,6 +109,9 @@ struct ToolResultContent: Identifiable {
 struct ThinkingContent: Identifiable {
     let id = UUID()
     var text: String
+    var isComplete: Bool = false
+    var startTime: Date = Date()
+    var endTime: Date? = nil
     var isExpanded: Bool = false
 }
 

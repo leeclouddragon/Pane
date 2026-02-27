@@ -4,6 +4,7 @@ import Foundation
 enum ClaudeEvent {
     case systemInit(SessionInfo)
     case textDelta(String)
+    case thinkingDelta(String)
     case contentBlockStart(index: Int, type: String)
     case contentBlockStop(index: Int)
     case toolUseStart(index: Int, id: String, name: String)
@@ -146,6 +147,9 @@ struct StreamParser {
                 let deltaType = delta["type"] as? String ?? ""
                 if deltaType == "text_delta", let text = delta["text"] as? String {
                     return .textDelta(text)
+                }
+                if deltaType == "thinking_delta", let thinking = delta["thinking"] as? String {
+                    return .thinkingDelta(thinking)
                 }
                 if deltaType == "input_json_delta", let json = delta["partial_json"] as? String {
                     return .toolInputDelta(index: index, json: json)

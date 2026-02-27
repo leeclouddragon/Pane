@@ -105,7 +105,8 @@ class PaneTextView: NSTextView {
 
     override func keyDown(with event: NSEvent) {
         // Enter (keyCode 36) without Shift → send
-        if event.keyCode == 36 && !event.modifierFlags.contains(.shift) {
+        // Skip if IME is composing (hasMarkedText) — e.g. Chinese pinyin using Enter to confirm
+        if event.keyCode == 36 && !event.modifierFlags.contains(.shift) && !hasMarkedText() {
             onCommit()
             return
         }

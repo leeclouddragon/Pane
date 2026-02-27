@@ -209,18 +209,69 @@ struct ToolResultBlockView: View {
 
 struct ThinkingBlockView: View {
     let content: ThinkingContent
+    /// Expanded when streaming, auto-collapses on complete
+    @State private var isExpanded: Bool? // nil = not yet set (will follow streaming state)
+
+    private var expanded: Bool {
+        isExpanded ?? !content.isComplete
+    }
 
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "brain")
-                .font(.system(size: 10))
-                .foregroundStyle(.purple.opacity(0.6))
-            Text("Thinking...")
-                .font(.system(size: 12))
-                .foregroundStyle(.tertiary)
+        VStack(alignment: .leading, spacing: 0) {
+            // Header
+            HStack(spacing: 4) {
+                if content.isComplete {
+                    Text("Thought for \(formattedDuration)")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.tertiary)
+                } else {
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        let elapsed = Int(context.date.timeIntervalSince(content.startTime))
+                        if content.text.isEmpty {
+                            Text("Thinking...")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("Thinking for \(elapsed)s")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.tertiary)
+
+                Spacer()
+            }
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isExpanded = !expanded
+                }
+            }
+
+            // Thinking content — shown when expanded
+            if expanded && !content.text.isEmpty {
+                Text(content.text)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary.opacity(0.8))
+                    .lineSpacing(4)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 4)
+                    .padding(.bottom, 8)
+            }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+    }
+
+    private var formattedDuration: String {
+        let end = content.endTime ?? Date()
+        let elapsed = Int(end.timeIntervalSince(content.startTime))
+        if elapsed < 60 { return "\(elapsed)s" }
+        return "\(elapsed / 60)m \(elapsed % 60)s"
     }
 }
 

@@ -170,9 +170,7 @@ struct ConversationView: View {
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
-        withAnimation(.easeOut(duration: 0.15)) {
-            proxy.scrollTo("bottom", anchor: .bottom)
-        }
+        proxy.scrollTo("bottom", anchor: .bottom)
     }
 
     private var contentMaxWidth: CGFloat {
