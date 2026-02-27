@@ -56,10 +56,48 @@ struct CodeContent: Identifiable {
 
 struct ToolCallContent: Identifiable {
     let id = UUID()
-    var tool: String       // Read, Edit, Bash, Grep, Glob, Write...
-    var summary: String    // short description
-    var detail: String     // full output
+    var tool: String           // Read, Edit, Bash, Grep, Glob, Write...
+    var toolUseId: String = "" // tool_use_id for matching results
+    var summary: String        // extracted meaningful info (file path, command, etc.)
+    var inputJson: String = "" // accumulated raw JSON input
+    var detail: String         // tool result output
+    var isError: Bool = false  // whether tool result was error
     var isExpanded: Bool = false
+    var isRunning: Bool = true // still waiting for result
+
+    /// Parse accumulated inputJson and extract a meaningful summary line.
+    mutating func extractSummary() {
+        guard let data = inputJson.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return }
+
+        switch tool.lowercased() {
+        case "read":
+            summary = obj["file_path"] as? String ?? summary
+        case "edit":
+            summary = obj["file_path"] as? String ?? summary
+        case "write":
+            summary = obj["file_path"] as? String ?? summary
+        case "bash":
+            if let cmd = obj["command"] as? String {
+                let firstLine = cmd.components(separatedBy: "\n").first ?? cmd
+                summary = String(firstLine.prefix(120))
+            }
+        case "grep":
+            let pattern = obj["pattern"] as? String ?? ""
+            let path = obj["path"] as? String
+            summary = path != nil ? "\(pattern) in \(path!)" : pattern
+        case "glob":
+            summary = obj["pattern"] as? String ?? summary
+        case "task":
+            summary = obj["description"] as? String ?? summary
+        default:
+            // Try to show first string value
+            if let first = obj.values.compactMap({ $0 as? String }).first {
+                summary = String(first.prefix(80))
+            }
+        }
+    }
 }
 
 struct ToolResultContent: Identifiable {

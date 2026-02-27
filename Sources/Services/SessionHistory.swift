@@ -120,12 +120,26 @@ struct SessionHistory {
 
     // MARK: - Load conversation messages from JSONL
 
-    static func loadMessages(from filePath: String) -> [Message] {
+    struct LoadResult {
+        let messages: [Message]
+        let model: String
+        let inputTokens: Int
+        let outputTokens: Int
+        let cacheReadTokens: Int
+        let cacheCreationTokens: Int
+    }
+
+    static func loadMessages(from filePath: String) -> LoadResult {
         guard let data = FileManager.default.contents(atPath: filePath),
               let text = String(data: data, encoding: .utf8)
-        else { return [] }
+        else { return LoadResult(messages: [], model: "", inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0) }
 
         var messages: [Message] = []
+        var model = ""
+        var totalInput = 0
+        var totalOutput = 0
+        var totalCacheRead = 0
+        var totalCacheCreation = 0
 
         for line in text.components(separatedBy: "\n") {
             guard !line.isEmpty,
@@ -140,8 +154,20 @@ struct SessionHistory {
                     messages.append(msg)
                 }
             } else if type == "assistant" {
+                // Extract usage data
+                if let message = json["message"] as? [String: Any] {
+                    if model.isEmpty, let m = message["model"] as? String {
+                        model = m
+                    }
+                    if let usage = message["usage"] as? [String: Any] {
+                        totalInput += usage["input_tokens"] as? Int ?? 0
+                        totalOutput += usage["output_tokens"] as? Int ?? 0
+                        totalCacheRead += usage["cache_read_input_tokens"] as? Int ?? 0
+                        totalCacheCreation += usage["cache_creation_input_tokens"] as? Int ?? 0
+                    }
+                }
+
                 if let msg = parseAssistantMessage(json) {
-                    // Merge consecutive assistant messages (streaming chunks get stored as separate entries)
                     if let last = messages.last, last.role == .assistant {
                         var merged = last
                         merged.blocks.append(contentsOf: msg.blocks)
@@ -153,7 +179,14 @@ struct SessionHistory {
             }
         }
 
-        return messages
+        return LoadResult(
+            messages: messages,
+            model: model,
+            inputTokens: totalInput,
+            outputTokens: totalOutput,
+            cacheReadTokens: totalCacheRead,
+            cacheCreationTokens: totalCacheCreation
+        )
     }
 
     private static func parseUserMessage(_ json: [String: Any]) -> Message? {

@@ -99,6 +99,18 @@ struct StreamParser {
                 cacheCreationTokens: cacheCreationTokens
             ))
 
+        // tool results (from --include-partial-messages)
+        case "tool_result":
+            let toolUseId = json["tool_use_id"] as? String ?? ""
+            let isError = json["is_error"] as? Bool ?? false
+            var content = ""
+            if let c = json["content"] as? String {
+                content = c
+            } else if let blocks = json["content"] as? [[String: Any]] {
+                content = blocks.compactMap { $0["text"] as? String }.joined(separator: "\n")
+            }
+            return .toolResult(toolUseId: toolUseId, content: content, isError: isError)
+
         default:
             return .unknown(type: type, raw: line)
         }

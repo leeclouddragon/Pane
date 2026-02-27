@@ -39,7 +39,7 @@ struct ComposerView: View {
                 .help("Attach files")
 
                 if isWelcome {
-                    // Folder selector
+                    // Folder selector (welcome only)
                     Button(action: pickFolder) {
                         HStack(spacing: 4) {
                             Image(systemName: "folder")
@@ -55,33 +55,33 @@ struct ComposerView: View {
                     }
                     .buttonStyle(.plain)
                     .help("Choose working directory")
+                }
 
-                    // Provider selector
-                    if let ps = conversation.providerState, !ps.providers.isEmpty {
-                        Menu {
-                            ForEach(ps.providers) { provider in
-                                Button(provider.id) {
-                                    ps.activeProviderID = provider.id
-                                }
+                // Provider selector (always visible)
+                if let ps = conversation.providerState, !ps.providers.isEmpty {
+                    Menu {
+                        ForEach(ps.providers) { provider in
+                            Button(provider.id) {
+                                ps.activeProviderID = provider.id
                             }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "bolt.horizontal")
-                                    .font(.system(size: 10))
-                                Text(ps.activeProviderID)
-                                    .font(.system(size: 11, design: .monospaced))
-                                Image(systemName: "chevron.down")
-                                    .font(.system(size: 7, weight: .semibold))
-                            }
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(.quaternary.opacity(0.4))
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
                         }
-                        .buttonStyle(.plain)
-                        .menuStyle(.borderlessButton)
-                        .fixedSize()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "bolt.horizontal")
+                                .font(.system(size: 10))
+                            Text(ps.activeProviderID)
+                                .font(.system(size: 11, design: .monospaced))
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 7, weight: .semibold))
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(.quaternary.opacity(0.4))
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
                     }
+                    .buttonStyle(.plain)
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
                 }
 
                 Spacer()

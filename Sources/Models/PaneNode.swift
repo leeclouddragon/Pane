@@ -6,12 +6,15 @@ import SwiftUI
 final class PaneState {
     var root: PaneNode
     let providerState: ProviderState
+    /// Currently focused conversation pane.
+    var focusedConversation: ConversationState?
 
     init(providerState: ProviderState = ProviderState()) {
         self.providerState = providerState
         let conversation = ConversationState()
         conversation.providerState = providerState
         self.root = .conversation(conversation)
+        self.focusedConversation = conversation
     }
 
     private func makeConversation() -> ConversationState {
@@ -32,6 +35,7 @@ final class PaneState {
                 second: .conversation(newConversation)
             )
         )
+        focusedConversation = newConversation
     }
 
     func splitVertical(pane: ConversationState) {
@@ -46,10 +50,64 @@ final class PaneState {
                 second: .conversation(newConversation)
             )
         )
+        focusedConversation = newConversation
     }
 
     func closePane(_ pane: ConversationState) {
         root = removeNode(containing: pane, from: root) ?? .conversation(makeConversation())
+        // Focus the remaining pane (or the new one)
+        if focusedConversation === pane {
+            focusedConversation = allConversations.first
+        }
+    }
+
+    /// All leaf conversations in tree order.
+    var allConversations: [ConversationState] {
+        collectConversations(from: root)
+    }
+
+    /// The focused conversation, or the first one if none is set.
+    var activeConversation: ConversationState? {
+        if let fc = focusedConversation, allConversations.contains(where: { $0 === fc }) {
+            return fc
+        }
+        return allConversations.first
+    }
+
+    /// Split focused pane horizontally.
+    func splitFocusedHorizontal() {
+        guard let pane = activeConversation else { return }
+        splitHorizontal(pane: pane)
+    }
+
+    /// Split focused pane vertically.
+    func splitFocusedVertical() {
+        guard let pane = activeConversation else { return }
+        splitVertical(pane: pane)
+    }
+
+    /// Close the focused pane.
+    func closeFocusedPane() {
+        guard let pane = activeConversation else { return }
+        // Don't close the last pane
+        guard allConversations.count > 1 else { return }
+        closePane(pane)
+    }
+
+    /// Replace the entire root with a fresh welcome conversation.
+    func newThread() {
+        let c = makeConversation()
+        root = .conversation(c)
+        focusedConversation = c
+    }
+
+    private func collectConversations(from node: PaneNode) -> [ConversationState] {
+        switch node {
+        case .conversation(let state):
+            return [state]
+        case .split(_, _, let first, let second):
+            return collectConversations(from: first) + collectConversations(from: second)
+        }
     }
 
     // MARK: - Tree operations

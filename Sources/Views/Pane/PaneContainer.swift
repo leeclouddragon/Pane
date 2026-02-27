@@ -2,12 +2,16 @@ import SwiftUI
 
 /// Recursive pane renderer. Leaf → ConversationView, split → two panes with divider.
 struct PaneContainer: View {
+    @Environment(PaneState.self) private var paneState
     let node: PaneNode
 
     var body: some View {
         switch node {
         case .conversation(let state):
             ConversationView(conversation: state)
+                .overlay(dimOverlay(for: state))
+                .contentShape(Rectangle())
+                .onTapGesture { paneState.focusedConversation = state }
 
         case .split(let direction, let ratio, let first, let second):
             PaneSplit(direction: direction, ratio: ratio) {
@@ -15,6 +19,15 @@ struct PaneContainer: View {
             } second: {
                 PaneContainer(node: second)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func dimOverlay(for state: ConversationState) -> some View {
+        // Dim unfocused panes when there are multiple
+        if paneState.allConversations.count > 1 && paneState.activeConversation !== state {
+            Color.black.opacity(0.25)
+                .allowsHitTesting(false)
         }
     }
 }
@@ -64,6 +77,7 @@ struct PaneDivider: View {
     let direction: Axis
     @Binding var ratio: CGFloat
     let totalSize: CGFloat
+    @State private var dragStartRatio: CGFloat?
 
     var body: some View {
         Rectangle()
@@ -76,14 +90,24 @@ struct PaneDivider: View {
             .gesture(
                 DragGesture()
                     .onChanged { value in
-                        let delta = direction == .horizontal ? value.translation.width : value.translation.height
-                        let newRatio = ratio + delta / totalSize
-                        ratio = min(max(newRatio, 0.2), 0.8)
+                        if dragStartRatio == nil {
+                            dragStartRatio = ratio
+                        }
+                        let offset = direction == .horizontal ? value.translation.width : value.translation.height
+                        let newRatio = (dragStartRatio ?? ratio) + offset / totalSize
+                        ratio = min(max(newRatio, 0.15), 0.85)
+                    }
+                    .onEnded { _ in
+                        dragStartRatio = nil
                     }
             )
             .onHover { hovering in
                 if hovering {
-                    NSCursor.resizeLeftRight.push()
+                    if direction == .horizontal {
+                        NSCursor.resizeLeftRight.push()
+                    } else {
+                        NSCursor.resizeUpDown.push()
+                    }
                 } else {
                     NSCursor.pop()
                 }

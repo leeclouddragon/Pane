@@ -29,10 +29,14 @@ final class ClaudeProcessManager {
     ///   - cwd: Working directory for the CLI process
     ///   - executablePath: Path to claude binary or clother-* script
     func send(prompt: String, cwd: String, executablePath: String? = nil) {
-        guard !isRunning else { return }
+        guard !isRunning else {
+            print("[DEBUG] send() blocked — isRunning=true")
+            return
+        }
         isRunning = true
 
         let exe = executablePath ?? Self.findClaudeBinary()
+        print("[DEBUG] send() exe=\(exe) cwd=\(cwd) sessionId=\(sessionId ?? "nil")")
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: exe)
@@ -46,12 +50,13 @@ final class ClaudeProcessManager {
 
         // Resume session if we have one
         if let sid = sessionId {
-            args += ["--resume", sid, "--continue"]
+            args += ["--resume", sid]
         }
 
         args.append(prompt)
         process.arguments = args
         process.currentDirectoryURL = URL(fileURLWithPath: cwd)
+        print("[DEBUG] args=\(args)")
 
         // Environment: inherit + unset CLAUDECODE (prevent nested session detection)
         var env = ProcessInfo.processInfo.environment
@@ -80,7 +85,8 @@ final class ClaudeProcessManager {
             }
         }
 
-        process.terminationHandler = { [weak self] _ in
+        process.terminationHandler = { [weak self] proc in
+            print("[DEBUG] process terminated, status=\(proc.terminationStatus)")
             DispatchQueue.main.async {
                 self?.isRunning = false
             }
@@ -123,6 +129,9 @@ final class ClaudeProcessManager {
             let line = String(lineBuffer[lineBuffer.startIndex..<newlineRange.lowerBound])
             lineBuffer = String(lineBuffer[newlineRange.upperBound...])
 
+            if !line.isEmpty {
+                print("[DEBUG] stdout line: \(line.prefix(120))")
+            }
             if !line.isEmpty, let event = StreamParser.parse(line: line) {
                 // Capture session ID from init
                 if case .systemInit(let info) = event {

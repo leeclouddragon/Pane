@@ -32,11 +32,7 @@ struct TextBlockView: View {
     var compact: Bool = false
 
     var body: some View {
-        Text(content.text)
-            .font(.system(size: 14))
-            .lineSpacing(4)
-            .textSelection(.enabled)
-            .if(!compact) { $0.frame(maxWidth: .infinity, alignment: .leading) }
+        MarkdownView(text: content.text, compact: compact)
     }
 }
 
@@ -76,7 +72,7 @@ struct CodeBlockView: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(content.code)
-                    .font(.system(size: 13, design: .monospaced))
+                    .font(.system(size: 12, design: .monospaced))
                     .textSelection(.enabled)
                     .padding(.horizontal, 12)
                     .padding(.vertical, content.language != nil ? 4 : 12)
@@ -98,45 +94,97 @@ struct CodeBlockView: View {
 
 struct ToolCallBlockView: View {
     let content: ToolCallContent
+    @State private var isExpanded = false
 
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: toolIcon(content.tool))
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.orange)
-                .frame(width: 16)
+        VStack(alignment: .leading, spacing: 0) {
+            // Header row
+            HStack(spacing: 6) {
+                // Spinning indicator or tool icon
+                if content.isRunning {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .frame(width: 14, height: 14)
+                } else {
+                    Image(systemName: toolIcon(content.tool))
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(content.isError ? .red : .orange)
+                        .frame(width: 14)
+                }
 
-            Text(content.tool)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.secondary)
+                Text(content.tool)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
 
-            Text(content.summary)
-                .font(.system(size: 12))
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
+                // Summary: file path, command, pattern, etc.
+                if !content.summary.isEmpty {
+                    Text(abbreviatePath(content.summary))
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
 
-            Spacer()
+                Spacer()
 
-            Image(systemName: content.isExpanded ? "chevron.down" : "chevron.right")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(.quaternary)
+                if !content.detail.isEmpty {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.quaternary)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if !content.detail.isEmpty {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        isExpanded.toggle()
+                    }
+                }
+            }
+
+            // Expandable detail (tool result output)
+            if isExpanded && !content.detail.isEmpty {
+                Divider().padding(.horizontal, 8)
+
+                ScrollView(.vertical, showsIndicators: true) {
+                    Text(content.detail)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(content.isError ? .red : .secondary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                }
+                .frame(maxHeight: 200)
+            }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
         .background(.quaternary.opacity(0.3))
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
     private func toolIcon(_ tool: String) -> String {
         switch tool.lowercased() {
-        case "read": "doc.text"
-        case "edit": "pencil.line"
-        case "write": "doc.badge.plus"
-        case "bash": "terminal"
-        case "glob": "folder.badge.questionmark"
-        case "grep": "magnifyingglass"
-        default: "wrench"
+        case "read": return "doc.text"
+        case "edit": return "pencil.line"
+        case "write": return "doc.badge.plus"
+        case "bash": return "terminal"
+        case "glob": return "folder.badge.questionmark"
+        case "grep": return "magnifyingglass"
+        case "task": return "person.2"
+        case "webfetch": return "globe"
+        default: return "wrench"
         }
+    }
+
+    /// Shorten absolute paths: /Users/foo/codebase/Bar/src/main.swift → ~/codebase/Bar/src/main.swift
+    private func abbreviatePath(_ path: String) -> String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        if path.hasPrefix(home) {
+            return "~" + path.dropFirst(home.count)
+        }
+        return path
     }
 }
 
@@ -186,7 +234,7 @@ struct ProgressBlockView: View {
             ProgressView()
                 .controlSize(.small)
             Text(content.label)
-                .font(.system(size: 13))
+                .font(.system(size: 12))
                 .foregroundStyle(.secondary)
         }
     }
@@ -203,7 +251,7 @@ struct ErrorBlockView: View {
                 .font(.system(size: 12))
                 .foregroundStyle(.red)
             Text(content.message)
-                .font(.system(size: 13))
+                .font(.system(size: 12))
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)

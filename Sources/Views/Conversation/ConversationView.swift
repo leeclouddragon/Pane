@@ -154,11 +154,18 @@ struct ConversationView: View {
         conversation.processManager.sessionId = session.id
         conversation.refreshGitBranch()
 
-        // Load historical messages from JSONL
+        // Load historical messages + token data from JSONL
         DispatchQueue.global(qos: .userInitiated).async {
-            let messages = SessionHistory.loadMessages(from: session.filePath)
+            let result = SessionHistory.loadMessages(from: session.filePath)
             DispatchQueue.main.async {
-                conversation.messages = messages
+                conversation.messages = result.messages
+                conversation.inputTokens = result.inputTokens
+                conversation.outputTokens = result.outputTokens
+                conversation.cachedTokens = result.cacheReadTokens + result.cacheCreationTokens
+                conversation.totalTokens = result.inputTokens + result.outputTokens + result.cacheReadTokens + result.cacheCreationTokens
+                if !result.model.isEmpty {
+                    conversation.currentModel = result.model
+                }
             }
         }
     }

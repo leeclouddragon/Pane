@@ -75,6 +75,16 @@ final class ConversationState: Identifiable {
         }
     }
 
+    /// Display title: first user message or "New Thread"
+    var displayTitle: String {
+        if let firstUser = messages.first(where: { $0.role == .user }),
+           case .text(let content) = firstUser.blocks.first {
+            let trimmed = content.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return String(trimmed.prefix(40))
+        }
+        return title
+    }
+
     func send(_ text: String) {
         guard !text.isEmpty else { return }
 
@@ -129,11 +139,18 @@ final class ConversationState: Identifiable {
 
         case .toolUseStart(_, let id, let name):
             messages[lastIndex].blocks.append(
-                .toolCall(ToolCallContent(tool: name, summary: id, detail: ""))
+                .toolCall(ToolCallContent(tool: name, toolUseId: id, summary: "", detail: ""))
             )
 
         case .contentBlockStop:
-            break
+            // When a tool_use block finishes streaming, extract summary from accumulated JSON
+            let blockCount = messages[lastIndex].blocks.count
+            if blockCount > 0,
+               case .toolCall(var content) = messages[lastIndex].blocks[blockCount - 1],
+               !content.inputJson.isEmpty {
+                content.extractSummary()
+                messages[lastIndex].blocks[blockCount - 1] = .toolCall(content)
+            }
 
         case .assistantMessage:
             // Full message already built from deltas; skip
@@ -162,11 +179,29 @@ final class ConversationState: Identifiable {
                 )
             }
 
-        case .toolInputDelta:
-            break
+        case .toolInputDelta(_, let json):
+            // Accumulate JSON input into the last tool call block
+            let blockCount = messages[lastIndex].blocks.count
+            if blockCount > 0,
+               case .toolCall(var content) = messages[lastIndex].blocks[blockCount - 1] {
+                content.inputJson += json
+                messages[lastIndex].blocks[blockCount - 1] = .toolCall(content)
+            }
 
-        case .toolResult:
-            break
+        case .toolResult(let toolUseId, let resultContent, let isError):
+            // Find the matching tool call and attach result
+            for msgIdx in stride(from: messages.count - 1, through: 0, by: -1) {
+                for blockIdx in stride(from: messages[msgIdx].blocks.count - 1, through: 0, by: -1) {
+                    if case .toolCall(var content) = messages[msgIdx].blocks[blockIdx],
+                       content.toolUseId == toolUseId {
+                        content.detail = resultContent
+                        content.isError = isError
+                        content.isRunning = false
+                        messages[msgIdx].blocks[blockIdx] = .toolCall(content)
+                        return
+                    }
+                }
+            }
 
         case .unknown:
             break
