@@ -11,7 +11,9 @@ struct PaneContainer: View {
             ConversationView(conversation: state)
                 .overlay(dimOverlay(for: state))
                 .contentShape(Rectangle())
-                .onTapGesture { paneState.focusedConversation = state }
+                .simultaneousGesture(
+                    TapGesture().onEnded { paneState.focusedConversation = state }
+                )
 
         case .split(let direction, let ratio, let first, let second):
             PaneSplit(direction: direction, ratio: ratio) {

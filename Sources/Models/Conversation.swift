@@ -88,6 +88,11 @@ final class ConversationState: Identifiable {
     func send(_ text: String) {
         guard !text.isEmpty else { return }
 
+        // Stop any in-flight process before starting a new one
+        if processManager.isRunning {
+            processManager.stop()
+        }
+
         // Add user message
         let userMsg = Message(role: .user, blocks: [.text(TextContent(text: text))])
         messages.append(userMsg)

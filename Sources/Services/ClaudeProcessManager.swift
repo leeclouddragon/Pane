@@ -1,5 +1,17 @@
 import Foundation
 
+private func debugLog(_ msg: String) {
+    let line = "[\(ISO8601DateFormatter().string(from: Date()))] \(msg)\n"
+    let path = "/tmp/pane_debug.log"
+    if let fh = FileHandle(forWritingAtPath: path) {
+        fh.seekToEndOfFile()
+        fh.write(line.data(using: .utf8)!)
+        fh.closeFile()
+    } else {
+        FileManager.default.createFile(atPath: path, contents: line.data(using: .utf8))
+    }
+}
+
 /// Manages a claude CLI subprocess per conversation.
 @Observable
 final class ClaudeProcessManager {
@@ -30,13 +42,14 @@ final class ClaudeProcessManager {
     ///   - executablePath: Path to claude binary or clother-* script
     func send(prompt: String, cwd: String, executablePath: String? = nil) {
         guard !isRunning else {
-            print("[DEBUG] send() blocked — isRunning=true")
+            debugLog("send() blocked — isRunning=true")
             return
         }
         isRunning = true
+        lineBuffer = ""
 
         let exe = executablePath ?? Self.findClaudeBinary()
-        print("[DEBUG] send() exe=\(exe) cwd=\(cwd) sessionId=\(sessionId ?? "nil")")
+        debugLog("send() exe=\(exe) cwd=\(cwd) sessionId=\(sessionId ?? "nil")")
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: exe)
@@ -56,13 +69,22 @@ final class ClaudeProcessManager {
         args.append(prompt)
         process.arguments = args
         process.currentDirectoryURL = URL(fileURLWithPath: cwd)
-        print("[DEBUG] args=\(args)")
+        debugLog("args=\(args)")
 
-        // Environment: inherit + unset CLAUDECODE (prevent nested session detection)
+        // Environment: inherit + ensure claude is on PATH
         var env = ProcessInfo.processInfo.environment
         env.removeValue(forKey: "CLAUDECODE")
-        // Suppress clother banner in non-tty context
         env["CLOTHER_NO_BANNER"] = "1"
+        // GUI apps have minimal PATH; add common claude install locations
+        let home = env["HOME"] ?? NSHomeDirectory()
+        let extraPaths = [
+            "\(home)/.local/bin",
+            "\(home)/bin",
+            "/usr/local/bin",
+            "/opt/homebrew/bin",
+        ]
+        let existingPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        env["PATH"] = (extraPaths + [existingPath]).joined(separator: ":")
         process.environment = env
 
         let stdoutPipe = Pipe()
@@ -81,12 +103,12 @@ final class ClaudeProcessManager {
         stderrPipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
             if !data.isEmpty, let text = String(data: data, encoding: .utf8) {
-                print("[claude stderr] \(text)")
+                debugLog("stderr: \(text)")
             }
         }
 
         process.terminationHandler = { [weak self] proc in
-            print("[DEBUG] process terminated, status=\(proc.terminationStatus)")
+            debugLog("process terminated, status=\(proc.terminationStatus)")
             DispatchQueue.main.async {
                 self?.isRunning = false
             }
@@ -130,7 +152,7 @@ final class ClaudeProcessManager {
             lineBuffer = String(lineBuffer[newlineRange.upperBound...])
 
             if !line.isEmpty {
-                print("[DEBUG] stdout line: \(line.prefix(120))")
+                debugLog("stdout: \(line.prefix(200))")
             }
             if !line.isEmpty, let event = StreamParser.parse(line: line) {
                 // Capture session ID from init
