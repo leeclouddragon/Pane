@@ -131,6 +131,17 @@ final class ConversationState: Identifiable {
 
     // MARK: - Event handling
 
+    /// Mark all incomplete thinking blocks as complete in the given message.
+    private func completeOpenThinkingBlocks(at msgIdx: Int) {
+        for blockIdx in 0..<messages[msgIdx].blocks.count {
+            if case .thinking(var content) = messages[msgIdx].blocks[blockIdx], !content.isComplete {
+                content.isComplete = true
+                if content.endTime == nil { content.endTime = Date() }
+                messages[msgIdx].blocks[blockIdx] = .thinking(content)
+            }
+        }
+    }
+
     private func handleEvent(_ event: ClaudeEvent, generation: Int) {
         // Discard events from a previous (stale) process
         guard generation == eventGeneration else { return }
@@ -145,6 +156,7 @@ final class ConversationState: Identifiable {
             refreshGitBranch()
 
         case .textDelta(let text):
+            completeOpenThinkingBlocks(at: idx)
             if case .text(var content) = messages[idx].blocks.last {
                 content.text += text
                 messages[idx].blocks[messages[idx].blocks.count - 1] = .text(content)
@@ -153,6 +165,7 @@ final class ConversationState: Identifiable {
             }
 
         case .toolUseStart(_, let id, let name):
+            completeOpenThinkingBlocks(at: idx)
             messages[idx].blocks.append(
                 .toolCall(ToolCallContent(tool: name, toolUseId: id, summary: "", detail: ""))
             )
@@ -206,6 +219,7 @@ final class ConversationState: Identifiable {
                 }
             }
 
+            completeOpenThinkingBlocks(at: idx)
             isStreaming = false
             totalCostUSD = info.costUSD
             inputTokens = info.inputTokens
@@ -226,6 +240,8 @@ final class ConversationState: Identifiable {
                 messages[idx].blocks.append(
                     .thinking(ThinkingContent(text: ""))
                 )
+            } else {
+                completeOpenThinkingBlocks(at: idx)
             }
 
         case .toolInputDelta(_, let json):

@@ -140,6 +140,9 @@ struct SessionHistory {
         var totalOutput = 0
         var totalCacheRead = 0
         var totalCacheCreation = 0
+        // Tracks whether a tool_result was seen since last assistant block.
+        // When true, next assistant line starts a new Message (new turn).
+        var turnBoundary = false
 
         for line in text.components(separatedBy: "\n") {
             guard !line.isEmpty,
@@ -150,9 +153,31 @@ struct SessionHistory {
             let type = json["type"] as? String ?? ""
 
             if type == "user" {
+                if let message = json["message"] as? [String: Any],
+                   let contentBlocks = message["content"] as? [[String: Any]] {
+                    // Parse tool_result blocks → fill matching tool call details
+                    for block in contentBlocks where block["type"] as? String == "tool_result" {
+                        let toolUseId = block["tool_use_id"] as? String ?? ""
+                        let isError = block["is_error"] as? Bool ?? false
+                        var resultContent = ""
+                        if let c = block["content"] as? String {
+                            resultContent = c
+                        } else if let parts = block["content"] as? [[String: Any]] {
+                            resultContent = parts.compactMap { $0["text"] as? String }.joined(separator: "\n")
+                        }
+                        if !toolUseId.isEmpty {
+                            fillToolCallDetail(in: &messages, toolUseId: toolUseId,
+                                               detail: String(resultContent.prefix(5000)), isError: isError)
+                            turnBoundary = true
+                        }
+                    }
+                }
+                // Also parse as user text message (returns nil if no text content)
                 if let msg = parseUserMessage(json) {
                     messages.append(msg)
+                    turnBoundary = false
                 }
+
             } else if type == "assistant" {
                 // Extract usage data
                 if let message = json["message"] as? [String: Any] {
@@ -168,12 +193,14 @@ struct SessionHistory {
                 }
 
                 if let msg = parseAssistantMessage(json) {
-                    if let last = messages.last, last.role == .assistant {
+                    // Merge into current assistant message (same turn), or start new one
+                    if !turnBoundary, let last = messages.last, last.role == .assistant {
                         var merged = last
                         merged.blocks.append(contentsOf: msg.blocks)
                         messages[messages.count - 1] = merged
                     } else {
                         messages.append(msg)
+                        turnBoundary = false
                     }
                 }
             }
@@ -187,6 +214,21 @@ struct SessionHistory {
             cacheReadTokens: totalCacheRead,
             cacheCreationTokens: totalCacheCreation
         )
+    }
+
+    /// Find a tool call block by toolUseId and fill in its result detail.
+    private static func fillToolCallDetail(in messages: inout [Message], toolUseId: String, detail: String, isError: Bool) {
+        for msgIdx in stride(from: messages.count - 1, through: 0, by: -1) {
+            for blockIdx in stride(from: messages[msgIdx].blocks.count - 1, through: 0, by: -1) {
+                if case .toolCall(var content) = messages[msgIdx].blocks[blockIdx],
+                   content.toolUseId == toolUseId {
+                    content.detail = detail
+                    content.isError = isError
+                    messages[msgIdx].blocks[blockIdx] = .toolCall(content)
+                    return
+                }
+            }
+        }
     }
 
     private static func parseUserMessage(_ json: [String: Any]) -> Message? {
@@ -225,11 +267,20 @@ struct SessionHistory {
             case "tool_use":
                 let name = block["name"] as? String ?? "tool"
                 let id = block["id"] as? String ?? ""
-                blocks.append(.toolCall(ToolCallContent(tool: name, summary: id, detail: "")))
+                var toolCall = ToolCallContent(tool: name, toolUseId: id, summary: "", detail: "")
+                toolCall.isRunning = false
+                // Extract summary from input
+                if let input = block["input"] as? [String: Any] {
+                    toolCall.inputJson = (try? String(data: JSONSerialization.data(withJSONObject: input), encoding: .utf8)) ?? ""
+                    toolCall.extractSummary()
+                }
+                blocks.append(.toolCall(toolCall))
             case "thinking":
                 let text = block["thinking"] as? String ?? ""
                 if !text.isEmpty {
-                    blocks.append(.thinking(ThinkingContent(text: String(text.prefix(200)))))
+                    var thinking = ThinkingContent(text: String(text.prefix(200)))
+                    thinking.isComplete = true
+                    blocks.append(.thinking(thinking))
                 }
             default:
                 break

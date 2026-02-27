@@ -34,11 +34,39 @@ struct MessageView: View {
 
     private var assistantContent: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if message.blocks.isEmpty {
+                TypingIndicator()
+            }
             ForEach(message.blocks) { block in
                 ContentBlockView(block: block)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// MARK: - Typing indicator (shown while waiting for first token)
+
+struct TypingIndicator: View {
+    @State private var animating = false
+
+    var body: some View {
+        HStack(spacing: 5) {
+            ForEach(0..<3, id: \.self) { i in
+                Circle()
+                    .fill(Color.secondary.opacity(0.6))
+                    .frame(width: 6, height: 6)
+                    .scaleEffect(animating ? 1.0 : 0.4)
+                    .animation(
+                        .easeInOut(duration: 0.5)
+                            .repeatForever(autoreverses: true)
+                            .delay(Double(i) * 0.15),
+                        value: animating
+                    )
+            }
+        }
+        .padding(.vertical, 8)
+        .onAppear { animating = true }
     }
 }
 

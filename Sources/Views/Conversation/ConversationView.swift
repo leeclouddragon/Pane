@@ -41,7 +41,6 @@ struct ConversationView: View {
 
                 // Composer
                 ComposerView(conversation: conversation, isWelcome: true)
-                    .frame(maxWidth: min(contentMaxWidth, 600))
 
                 // Recent sessions
                 if !recentSessions.isEmpty {
@@ -83,9 +82,10 @@ struct ConversationView: View {
                             .buttonStyle(.plain)
                         }
                     }
-                    .frame(maxWidth: min(contentMaxWidth, 600))
                 }
             }
+            .frame(maxWidth: min(contentMaxWidth, 600))
+            .padding(.horizontal, 24)
 
             Spacer()
         }

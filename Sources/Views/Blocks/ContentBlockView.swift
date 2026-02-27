@@ -209,12 +209,7 @@ struct ToolResultBlockView: View {
 
 struct ThinkingBlockView: View {
     let content: ThinkingContent
-    /// Expanded when streaming, auto-collapses on complete
-    @State private var isExpanded: Bool? // nil = not yet set (will follow streaming state)
-
-    private var expanded: Bool {
-        isExpanded ?? !content.isComplete
-    }
+    @State private var isExpanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -239,7 +234,7 @@ struct ThinkingBlockView: View {
                     }
                 }
 
-                Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.tertiary)
 
@@ -249,12 +244,12 @@ struct ThinkingBlockView: View {
             .contentShape(Rectangle())
             .onTapGesture {
                 withAnimation(.easeInOut(duration: 0.15)) {
-                    isExpanded = !expanded
+                    isExpanded.toggle()
                 }
             }
 
             // Thinking content — shown when expanded
-            if expanded && !content.text.isEmpty {
+            if isExpanded && !content.text.isEmpty {
                 Text(content.text)
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary.opacity(0.8))
@@ -263,6 +258,18 @@ struct ThinkingBlockView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.top, 4)
                     .padding(.bottom, 8)
+            }
+        }
+        .onAppear {
+            // Streaming: start expanded; completed/historical: start collapsed
+            isExpanded = !content.isComplete
+        }
+        .onChange(of: content.isComplete) { _, complete in
+            // Auto-collapse when thinking finishes
+            if complete {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isExpanded = false
+                }
             }
         }
     }

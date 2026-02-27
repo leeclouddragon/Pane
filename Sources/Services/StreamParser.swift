@@ -116,6 +116,27 @@ struct StreamParser {
             }
             return .toolResult(toolUseId: toolUseId, content: content, isError: isError)
 
+        // user message containing tool_result blocks (actual format from CLI)
+        case "user":
+            if let message = json["message"] as? [String: Any],
+               let contentBlocks = message["content"] as? [[String: Any]] {
+                // Return the first tool_result found; handleEvent will match by toolUseId
+                for block in contentBlocks {
+                    if block["type"] as? String == "tool_result" {
+                        let toolUseId = block["tool_use_id"] as? String ?? ""
+                        let isError = block["is_error"] as? Bool ?? false
+                        var content = ""
+                        if let c = block["content"] as? String {
+                            content = c
+                        } else if let parts = block["content"] as? [[String: Any]] {
+                            content = parts.compactMap { $0["text"] as? String }.joined(separator: "\n")
+                        }
+                        return .toolResult(toolUseId: toolUseId, content: content, isError: isError)
+                    }
+                }
+            }
+            return .unknown(type: type, raw: line)
+
         default:
             return .unknown(type: type, raw: line)
         }
