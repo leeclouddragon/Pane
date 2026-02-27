@@ -152,7 +152,11 @@ final class ClaudeProcessManager {
             lineBuffer = String(lineBuffer[newlineRange.upperBound...])
 
             if !line.isEmpty {
-                debugLog("stdout: \(line.prefix(200))")
+                if line.contains("\"is_error\":true") || line.contains("error_during") {
+                    debugLog("stdout[FULL]: \(line)")
+                } else {
+                    debugLog("stdout: \(line.prefix(200))")
+                }
             }
             if !line.isEmpty, let event = StreamParser.parse(line: line) {
                 // Capture session ID from init

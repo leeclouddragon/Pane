@@ -113,6 +113,10 @@ struct ConversationView: View {
                             MessageView(message: message)
                                 .id(message.id)
                         }
+                        // Invisible anchor at the very bottom
+                        Color.clear
+                            .frame(height: 1)
+                            .id("bottom")
                     }
                     .frame(maxWidth: contentMaxWidth, alignment: .center)
                     .frame(maxWidth: .infinity)
@@ -121,12 +125,22 @@ struct ConversationView: View {
                     .padding(.bottom, 24)
                 }
                 .scrollContentBackground(.hidden)
+                .defaultScrollAnchor(.bottom)
                 .onChange(of: conversation.messages.count) {
-                    if let last = conversation.messages.last {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo(last.id, anchor: .bottom)
-                        }
+                    scrollToBottom(proxy)
+                }
+                .onChange(of: conversation.messages.last?.blocks.count) {
+                    if conversation.isStreaming {
+                        scrollToBottom(proxy)
                     }
+                }
+                .onChange(of: lastBlockText) {
+                    if conversation.isStreaming {
+                        scrollToBottom(proxy)
+                    }
+                }
+                .onAppear {
+                    scrollToBottom(proxy)
                 }
             }
 
@@ -144,6 +158,22 @@ struct ConversationView: View {
     }
 
     // MARK: - Helpers
+
+    /// Text length of the last block in the last message — triggers scroll on streaming content.
+    private var lastBlockText: Int {
+        guard let lastMsg = conversation.messages.last,
+              let lastBlock = lastMsg.blocks.last else { return 0 }
+        if case .text(let content) = lastBlock {
+            return content.text.count
+        }
+        return 0
+    }
+
+    private func scrollToBottom(_ proxy: ScrollViewProxy) {
+        withAnimation(.easeOut(duration: 0.15)) {
+            proxy.scrollTo("bottom", anchor: .bottom)
+        }
+    }
 
     private var contentMaxWidth: CGFloat {
         settings.widthMode.maxWidth ?? .infinity

@@ -73,8 +73,12 @@ struct StreamParser {
         // final result
         case "result":
             let sessionId = json["session_id"] as? String ?? ""
-            let result = json["result"] as? String ?? ""
+            var result = json["result"] as? String ?? ""
             let isError = json["is_error"] as? Bool ?? false
+            // Error details may be in "errors" array instead of "result"
+            if isError && result.isEmpty, let errors = json["errors"] as? [String] {
+                result = errors.joined(separator: "\n")
+            }
             let costUSD = json["total_cost_usd"] as? Double ?? 0
             let durationMs = json["duration_ms"] as? Int ?? 0
             var inputTokens = 0
