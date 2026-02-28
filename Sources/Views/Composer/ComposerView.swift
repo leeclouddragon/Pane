@@ -43,7 +43,7 @@ struct ComposerView: View {
                 onCommit: sendMessage,
                 onImagePaste: handleImagePaste,
                 onSlashNavigate: handleSlashNavigate,
-                onModeToggle: { conversation.interactionMode = conversation.interactionMode.next() }
+                onModeToggle: { conversation.cycleMode() }
             )
             .frame(height: textHeight)
 
@@ -83,11 +83,11 @@ struct ComposerView: View {
                     Menu {
                         ForEach(ps.providers) { provider in
                             Button(provider.id) {
-                                ps.activeProviderID = provider.id
+                                conversation.activeProviderID = provider.id
                             }
                         }
                     } label: {
-                        Text(ps.activeProviderID)
+                        Text(conversation.activeProviderID)
                             .font(.system(size: 10, design: .monospaced))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)

@@ -210,7 +210,7 @@ class PaneTextView: NSTextView {
                 .font: font ?? NSFont.systemFont(ofSize: 13),
                 .foregroundColor: NSColor.tertiaryLabelColor,
             ]
-            let placeholder = NSAttributedString(string: "Message...", attributes: attrs)
+            let placeholder = NSAttributedString(string: "Ask for follow-up changes", attributes: attrs)
             placeholder.draw(at: NSPoint(x: textContainerInset.width, y: textContainerInset.height))
         }
     }

@@ -33,6 +33,7 @@ final class ClaudeProcessManager {
     @ObservationIgnored private var warmStderrPipe: Pipe?
     @ObservationIgnored private var warmCwd: String?
     @ObservationIgnored private var warmExePath: String?
+    @ObservationIgnored private var warmPermissionMode: InteractionMode?
 
     // Cached environment (built once, reused)
     @ObservationIgnored private var cachedEnv: [String: String]?
@@ -80,8 +81,16 @@ final class ClaudeProcessManager {
     }
 
     /// Build CLI arguments (without prompt).
-    private func buildArgs() -> [String] {
+    private func buildArgs(permissionMode: InteractionMode = .normal) -> [String] {
         var args = adapter.formatArguments()
+        switch permissionMode {
+        case .normal:
+            break
+        case .acceptEdits:
+            args += ["--permission-mode", "acceptEdits"]
+        case .plan:
+            args += ["--permission-mode", "plan"]
+        }
         if let sid = sessionId {
             args += ["--resume", sid]
         }
@@ -93,7 +102,7 @@ final class ClaudeProcessManager {
     /// Start a process ahead of time without a prompt.
     /// The process initializes (Node.js startup, config loading, MCP connections)
     /// and waits for stdin input. When send() is called, the prompt is piped in.
-    func prewarm(cwd: String, executablePath: String? = nil) {
+    func prewarm(cwd: String, executablePath: String? = nil, permissionMode: InteractionMode = .normal) {
         // Don't pre-warm if one is already running or cwd is empty
         guard warmProcess == nil, !cwd.isEmpty else { return }
 
@@ -102,7 +111,7 @@ final class ClaudeProcessManager {
 
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: exe)
-        proc.arguments = buildArgs() // no prompt — reads from stdin
+        proc.arguments = buildArgs(permissionMode: permissionMode)
         proc.currentDirectoryURL = URL(fileURLWithPath: cwd)
         proc.environment = env
 
@@ -145,7 +154,8 @@ final class ClaudeProcessManager {
             warmStderrPipe = stderrPipe
             warmCwd = cwd
             warmExePath = exe
-            debugLog("prewarm: started (exe=\(exe) cwd=\(cwd) sid=\(sessionId ?? "nil"))")
+            warmPermissionMode = permissionMode
+            debugLog("prewarm: started (exe=\(exe) cwd=\(cwd) mode=\(permissionMode) sid=\(sessionId ?? "nil"))")
         } catch {
             debugLog("prewarm: failed — \(error)")
         }
@@ -162,7 +172,7 @@ final class ClaudeProcessManager {
 
     // MARK: - Send
 
-    func send(prompt: String, cwd: String, executablePath: String? = nil) {
+    func send(prompt: String, cwd: String, executablePath: String? = nil, permissionMode: InteractionMode = .normal) {
         guard !isRunning else {
             debugLog("send() blocked — isRunning=true")
             return
@@ -173,16 +183,16 @@ final class ClaudeProcessManager {
 
         let exe = executablePath ?? Self.findClaudeBinary()
 
-        // Try to use a pre-warmed process
+        // Try to use a pre-warmed process (must match cwd, exe, AND permission mode)
         if let warm = warmProcess, warm.isRunning,
-           warmCwd == cwd, warmExePath == exe {
+           warmCwd == cwd, warmExePath == exe, warmPermissionMode == permissionMode {
             debugLog("send() using pre-warmed process")
             adoptWarmProcess(prompt: prompt)
         } else {
             // Discard stale pre-warm if any
             discardPrewarm()
-            debugLog("send() creating new process (exe=\(exe) cwd=\(cwd) sid=\(sessionId ?? "nil"))")
-            launchNewProcess(prompt: prompt, cwd: cwd, exe: exe)
+            debugLog("send() creating new process (exe=\(exe) cwd=\(cwd) mode=\(permissionMode) sid=\(sessionId ?? "nil"))")
+            launchNewProcess(prompt: prompt, cwd: cwd, exe: exe, permissionMode: permissionMode)
         }
     }
 
@@ -228,15 +238,16 @@ final class ClaudeProcessManager {
         warmStderrPipe = nil
         warmCwd = nil
         warmExePath = nil
+        warmPermissionMode = nil
     }
 
     /// Launch a brand new process and send the prompt via stdin JSON.
-    private func launchNewProcess(prompt: String, cwd: String, exe: String) {
+    private func launchNewProcess(prompt: String, cwd: String, exe: String, permissionMode: InteractionMode = .normal) {
         let env = resolveEnv()
 
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: exe)
-        proc.arguments = buildArgs()
+        proc.arguments = buildArgs(permissionMode: permissionMode)
         proc.currentDirectoryURL = URL(fileURLWithPath: cwd)
         proc.environment = env
         debugLog("launchNewProcess (exe=\(exe) cwd=\(cwd) sid=\(sessionId ?? "nil"))")

@@ -4,12 +4,15 @@ import SwiftUI
 struct ANSITextView: View {
     let text: String
 
+    @State private var attributed: AttributedString = AttributedString()
+
     var body: some View {
-        Text(Self.parse(text))
+        Text(attributed)
             .font(.system(size: 11, design: .monospaced))
             .lineSpacing(2)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .onChange(of: text, initial: true) { attributed = Self.parse(text) }
     }
 
     /// Returns true if text contains ANSI escape sequences.

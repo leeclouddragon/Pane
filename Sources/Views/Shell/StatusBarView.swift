@@ -44,7 +44,7 @@ struct StatusBarView: View {
                 }
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    conversation.interactionMode = conversation.interactionMode.next()
+                    conversation.cycleMode()
                 }
             }
 

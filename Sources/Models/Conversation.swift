@@ -66,8 +66,26 @@ final class ConversationState: Identifiable {
     let sessionStart: Date
     var interactionMode: InteractionMode = .normal
 
-    /// Provider state — supplies the clother executable path.
+    /// Cycle to next interaction mode and invalidate pre-warmed process.
+    func cycleMode() {
+        interactionMode = interactionMode.next()
+        processManager.discardPrewarm()
+    }
+
+    /// Provider state — supplies the list of available providers.
     var providerState: ProviderState?
+
+    /// Per-conversation provider selection. Falls back to providerState default.
+    var activeProviderID: String = ""
+
+    /// The executable path for this conversation's selected provider.
+    var executablePath: String {
+        if let ps = providerState,
+           let match = ps.providers.first(where: { $0.id == activeProviderID }) {
+            return match.scriptPath
+        }
+        return executablePath ?? ClaudeProcessManager.findClaudeBinary()
+    }
 
     let processManager = ClaudeProcessManager()
 
@@ -226,7 +244,8 @@ final class ConversationState: Identifiable {
         processManager.send(
             prompt: prompt,
             cwd: workingDirectory,
-            executablePath: providerState?.executablePath
+            executablePath: executablePath,
+            permissionMode: interactionMode
         )
     }
 
@@ -335,7 +354,8 @@ final class ConversationState: Identifiable {
                 processManager.send(
                     prompt: lastPrompt,
                     cwd: workingDirectory,
-                    executablePath: providerState?.executablePath
+                    executablePath: executablePath,
+                    permissionMode: interactionMode
                 )
                 return
             }
@@ -380,7 +400,8 @@ final class ConversationState: Identifiable {
             } else if !info.isError {
                 processManager.prewarm(
                     cwd: workingDirectory,
-                    executablePath: providerState?.executablePath
+                    executablePath: executablePath,
+                    permissionMode: interactionMode
                 )
             }
 

@@ -17,6 +17,7 @@ final class PaneState {
         self.providerState = providerState
         let conversation = ConversationState()
         conversation.providerState = providerState
+        conversation.activeProviderID = providerState.activeProviderID
         self.root = .conversation(conversation)
         self.focusedConversation = conversation
     }
@@ -24,6 +25,7 @@ final class PaneState {
     private func makeConversation() -> ConversationState {
         let c = ConversationState()
         c.providerState = providerState
+        c.activeProviderID = providerState.activeProviderID
         return c
     }
 
