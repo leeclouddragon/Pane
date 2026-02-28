@@ -45,6 +45,48 @@ struct PendingMessage: Identifiable {
     let attachments: [URL]
 }
 
+/// A question from AskUserQuestion tool waiting for user response.
+struct PendingQuestion {
+    let toolUseId: String
+    let questions: [QuestionItem]
+
+    struct QuestionItem {
+        let question: String
+        let header: String
+        let options: [OptionItem]
+        let multiSelect: Bool
+    }
+
+    struct OptionItem {
+        let label: String
+        let description: String
+    }
+
+    /// Parse from tool call's inputJson.
+    static func parse(toolUseId: String, inputJson: String) -> PendingQuestion? {
+        guard let data = inputJson.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let rawQuestions = obj["questions"] as? [[String: Any]]
+        else { return nil }
+
+        let items = rawQuestions.map { q in
+            let options = (q["options"] as? [[String: Any]] ?? []).map { opt in
+                OptionItem(
+                    label: opt["label"] as? String ?? "",
+                    description: opt["description"] as? String ?? ""
+                )
+            }
+            return QuestionItem(
+                question: q["question"] as? String ?? "",
+                header: q["header"] as? String ?? "",
+                options: options,
+                multiSelect: q["multiSelect"] as? Bool ?? false
+            )
+        }
+        return PendingQuestion(toolUseId: toolUseId, questions: items)
+    }
+}
+
 @Observable
 final class ConversationState: Identifiable {
     let id: UUID
@@ -63,6 +105,12 @@ final class ConversationState: Identifiable {
     var gitBranch: String
     let sessionStart: Date
     var interactionMode: InteractionMode = .normal
+
+    /// Bumped when the pane tree restructures (split/close) to re-anchor scroll position.
+    var scrollNudge: Int = 0
+
+    /// AskUserQuestion pending user response — shown as panel above composer.
+    var pendingQuestion: PendingQuestion?
 
     /// Cycle to next interaction mode and invalidate pre-warmed process.
     func cycleMode() {
@@ -265,6 +313,29 @@ final class ConversationState: Identifiable {
         )
     }
 
+    /// Send a tool result back to the CLI via stdin (e.g. AskUserQuestion response).
+    func respondToTool(toolUseId: String, result: String) {
+        let data = processManager.adapter.encodeToolResult(toolUseId: toolUseId, result: result)
+        processManager.writeToStdin(data)
+    }
+
+    /// Answer the pending AskUserQuestion and clear it.
+    func answerQuestion(answers: [String: String]) {
+        guard let pq = pendingQuestion else { return }
+        if let data = try? JSONSerialization.data(withJSONObject: ["answers": answers]),
+           let json = String(data: data, encoding: .utf8) {
+            respondToTool(toolUseId: pq.toolUseId, result: json)
+        }
+        pendingQuestion = nil
+    }
+
+    /// Skip the pending AskUserQuestion.
+    func skipQuestion() {
+        guard let pq = pendingQuestion else { return }
+        respondToTool(toolUseId: pq.toolUseId, result: "{\"skipped\": true}")
+        pendingQuestion = nil
+    }
+
     func stop() {
         processManager.stop()
         isStreaming = false
@@ -363,11 +434,19 @@ final class ConversationState: Identifiable {
                 content.endTime = Date()
                 messages[idx].blocks[blockCount - 1] = .thinking(content)
             }
-            // Extract tool call summary
+            // Extract tool call summary + detect AskUserQuestion
             if case .toolCall(var content) = messages[idx].blocks[blockCount - 1],
                !content.inputJson.isEmpty {
                 content.extractSummary()
                 messages[idx].blocks[blockCount - 1] = .toolCall(content)
+
+                // Surface AskUserQuestion as a floating panel
+                if content.tool.lowercased() == "askuserquestion" {
+                    pendingQuestion = PendingQuestion.parse(
+                        toolUseId: content.toolUseId,
+                        inputJson: content.inputJson
+                    )
+                }
             }
 
         case .assistantMessage:
@@ -464,6 +543,10 @@ final class ConversationState: Identifiable {
             }
 
         case .toolResult(let toolUseId, let resultContent, let isError):
+            // Clear pending question if this result is for it
+            if pendingQuestion?.toolUseId == toolUseId {
+                pendingQuestion = nil
+            }
             for msgIdx in stride(from: messages.count - 1, through: 0, by: -1) {
                 for blockIdx in stride(from: messages[msgIdx].blocks.count - 1, through: 0, by: -1) {
                     if case .toolCall(var content) = messages[msgIdx].blocks[blockIdx],

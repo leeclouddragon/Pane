@@ -12,6 +12,9 @@ protocol CLIProtocolAdapter {
     /// The returned Data must include any trailing delimiter (e.g. newline).
     func encodeUserMessage(_ prompt: String) -> Data
 
+    /// Encode a tool result to send back to CLI via stdin (e.g. AskUserQuestion response).
+    func encodeToolResult(toolUseId: String, result: String) -> Data
+
     /// Parse a single stdout line into an internal event.
     /// Returns nil for blank or unparseable lines.
     func parseLine(_ line: String) -> ClaudeEvent?

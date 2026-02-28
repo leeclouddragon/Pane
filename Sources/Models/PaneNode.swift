@@ -41,6 +41,7 @@ final class PaneState {
                 second: .conversation(newConversation)
             )
         )
+        existing.scrollNudge += 1
         focusedConversation = newConversation
     }
 
@@ -56,6 +57,7 @@ final class PaneState {
                 second: .conversation(newConversation)
             )
         )
+        existing.scrollNudge += 1
         focusedConversation = newConversation
     }
 

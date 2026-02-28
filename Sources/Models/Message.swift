@@ -95,8 +95,18 @@ struct ToolCallContent: Identifiable {
             summary = path != nil ? "\(pattern) in \(path!)" : pattern
         case "glob":
             summary = obj["pattern"] as? String ?? summary
-        case "task":
+        case "task", "agent":
             summary = obj["description"] as? String ?? summary
+        case "askuserquestion":
+            if let questions = obj["questions"] as? [[String: Any]],
+               let first = questions.first,
+               let q = first["question"] as? String {
+                summary = String(q.prefix(80))
+            }
+        case "webfetch":
+            summary = obj["url"] as? String ?? summary
+        case "notebookedit":
+            summary = obj["notebook_path"] as? String ?? summary
         default:
             // Try to show first string value
             if let first = obj.values.compactMap({ $0 as? String }).first {

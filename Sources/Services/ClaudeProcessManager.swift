@@ -26,6 +26,9 @@ final class ClaudeProcessManager {
     /// Serial queue protecting lineBuffer from concurrent access by readability handlers.
     @ObservationIgnored private let parseQueue = DispatchQueue(label: "com.pane.line-parser")
 
+    // Active stdin handle — kept open for interactive tool responses (e.g. AskUserQuestion)
+    @ObservationIgnored private var activeStdinHandle: FileHandle?
+
     // Pre-warm state (background thread access)
     @ObservationIgnored private var warmProcess: Process?
     @ObservationIgnored private var warmStdinPipe: Pipe?
@@ -241,6 +244,7 @@ final class ClaudeProcessManager {
             debugLog("process terminated, status=\(p.terminationStatus) resultReceived=\(self?.resultReceived ?? false)")
             DispatchQueue.main.async {
                 guard let self, self.process === p else { return }
+                self.activeStdinHandle = nil
                 self.isRunning = false
                 if !self.resultReceived {
                     let status = p.terminationStatus
@@ -260,10 +264,10 @@ final class ClaudeProcessManager {
             }
         }
 
-        // Write user message as JSON line — CLI processes immediately (no EOF needed)
+        // Write user message as JSON line — keep stdin open for interactive responses
         if let handle = warmStdinPipe?.fileHandleForWriting {
             handle.write(adapter.encodeUserMessage(prompt))
-            handle.closeFile()
+            activeStdinHandle = handle
         }
 
         warmStdinPipe = nil
@@ -316,6 +320,7 @@ final class ClaudeProcessManager {
             debugLog("process terminated, status=\(p.terminationStatus) resultReceived=\(self?.resultReceived ?? false)")
             DispatchQueue.main.async {
                 guard let self, self.process === p else { return }
+                self.activeStdinHandle = nil
                 self.isRunning = false
                 if !self.resultReceived {
                     let status = p.terminationStatus
@@ -339,9 +344,9 @@ final class ClaudeProcessManager {
 
         do {
             try proc.run()
-            // Send prompt via stdin as JSON (CLI inits, then reads this)
+            // Send prompt via stdin as JSON — keep stdin open for interactive responses
             stdinPipe.fileHandleForWriting.write(adapter.encodeUserMessage(prompt))
-            stdinPipe.fileHandleForWriting.closeFile()
+            activeStdinHandle = stdinPipe.fileHandleForWriting
         } catch {
             isRunning = false
             let errorEvent = ClaudeEvent.result(ResultInfo(
@@ -359,7 +364,19 @@ final class ClaudeProcessManager {
         }
     }
 
+    /// Write data to the active stdin (for interactive tool responses).
+    func writeToStdin(_ data: Data) {
+        guard let handle = activeStdinHandle else {
+            debugLog("writeToStdin: no active stdin handle")
+            return
+        }
+        handle.write(data)
+        debugLog("writeToStdin: wrote \(data.count) bytes")
+    }
+
     func stop() {
+        activeStdinHandle?.closeFile()
+        activeStdinHandle = nil
         let old = process
         process = nil
         isRunning = false

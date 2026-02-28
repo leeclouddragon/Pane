@@ -185,8 +185,8 @@ struct ConversationView: View {
                             CompactingIndicator()
                                 .padding(.vertical, 6)
                         }
-                        // Activity indicator: streaming only (completion durations are inline per message)
-                        if conversation.isStreaming {
+                        // Activity indicator: streaming only (hidden when waiting for question)
+                        if conversation.isStreaming && conversation.pendingQuestion == nil {
                             ActivityIndicator(
                                 isStreaming: true,
                                 startTime: conversation.messages.last?.timestamp,
@@ -224,6 +224,12 @@ struct ConversationView: View {
                 .onChange(of: conversation.isCompacting) {
                     scrollToBottom(proxy)
                 }
+                .onChange(of: conversation.scrollNudge) {
+                    // Delay until the split animation (0.2s) finishes so layout is stable
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                        proxy.scrollTo("bottom", anchor: .bottom)
+                    }
+                }
                 .onAppear {
                     scrollToBottom(proxy)
                 }
@@ -245,6 +251,10 @@ struct ConversationView: View {
 
                 if !conversation.pendingMessages.isEmpty {
                     PendingMessagesView(conversation: conversation)
+                }
+
+                if conversation.pendingQuestion != nil {
+                    QuestionPanel(conversation: conversation)
                 }
 
                 ComposerView(conversation: conversation, isFocused: isFocusedPane)
