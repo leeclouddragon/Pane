@@ -36,6 +36,9 @@ struct ResultInfo {
     let outputTokens: Int
     let cacheReadTokens: Int
     let cacheCreationTokens: Int
+    // Context window info from CLI (nil if not present)
+    let contextUsedPercent: Int?
+    let contextWindowSize: Int?
 }
 
 /// Parses NDJSON lines from claude CLI stdout into ClaudeEvents.
@@ -101,6 +104,13 @@ struct StreamParser {
                 cacheReadTokens = usage["cache_read_input_tokens"] as? Int ?? 0
                 cacheCreationTokens = usage["cache_creation_input_tokens"] as? Int ?? 0
             }
+            // Parse context_window from CLI result
+            var contextUsedPercent: Int?
+            var contextWindowSize: Int?
+            if let cw = json["context_window"] as? [String: Any] {
+                contextUsedPercent = cw["used_percentage"] as? Int
+                contextWindowSize = cw["context_window_size"] as? Int
+            }
             return .result(ResultInfo(
                 sessionId: sessionId,
                 result: result,
@@ -110,7 +120,9 @@ struct StreamParser {
                 inputTokens: inputTokens,
                 outputTokens: outputTokens,
                 cacheReadTokens: cacheReadTokens,
-                cacheCreationTokens: cacheCreationTokens
+                cacheCreationTokens: cacheCreationTokens,
+                contextUsedPercent: contextUsedPercent,
+                contextWindowSize: contextWindowSize
             ))
 
         // tool results (from --include-partial-messages)

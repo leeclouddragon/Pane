@@ -18,6 +18,7 @@ struct InputTextView: NSViewRepresentable {
     var onCommit: () -> Void = {}
     var onImagePaste: ((NSImage) -> Void)?
     var onSlashNavigate: ((SlashNavigateAction) -> Void)?
+    var onModeToggle: (() -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -72,6 +73,7 @@ struct InputTextView: NSViewRepresentable {
         }
 
         textView.onCommit = onCommit
+        textView.onModeToggle = onModeToggle
         textView.slashMenuVisible = slashMenuVisible
         // Keep coordinator callbacks fresh
         context.coordinator.parent = self
@@ -127,6 +129,7 @@ struct InputTextView: NSViewRepresentable {
 /// Custom NSTextView: placeholder + Enter to send, Shift+Enter for newline.
 class PaneTextView: NSTextView {
     var onCommit: () -> Void = {}
+    var onModeToggle: (() -> Void)?
     var slashMenuVisible: Bool = false
     weak var coordinator: InputTextView.Coordinator?
 
@@ -181,6 +184,12 @@ class PaneTextView: NSTextView {
             default:
                 break
             }
+        }
+
+        // Shift+Tab (keyCode 48): cycle interaction mode
+        if event.keyCode == 48 && event.modifierFlags.contains(.shift) {
+            onModeToggle?()
+            return
         }
 
         // Enter (keyCode 36) without Shift → send

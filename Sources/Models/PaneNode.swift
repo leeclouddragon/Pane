@@ -4,10 +4,14 @@ import SwiftUI
 /// Leaf = conversation, branch = split into two panes.
 @Observable
 final class PaneState {
-    var root: PaneNode
+    var root: PaneNode {
+        didSet { paneCount = Self.countLeaves(root) }
+    }
     let providerState: ProviderState
     /// Currently focused conversation pane.
     var focusedConversation: ConversationState?
+    /// Cached leaf count — O(1) reads, updated on tree mutation.
+    private(set) var paneCount: Int = 1
 
     init(providerState: ProviderState = ProviderState()) {
         self.providerState = providerState
@@ -61,17 +65,14 @@ final class PaneState {
         }
     }
 
-    /// All leaf conversations in tree order.
+    /// All leaf conversations in tree order. Use sparingly — O(n) traversal.
     var allConversations: [ConversationState] {
         collectConversations(from: root)
     }
 
-    /// The focused conversation, or the first one if none is set.
+    /// The focused conversation. Always valid — maintained by split/close/newThread.
     var activeConversation: ConversationState? {
-        if let fc = focusedConversation, allConversations.contains(where: { $0 === fc }) {
-            return fc
-        }
-        return allConversations.first
+        focusedConversation
     }
 
     /// Split focused pane horizontally.
@@ -89,16 +90,24 @@ final class PaneState {
     /// Close the focused pane.
     func closeFocusedPane() {
         guard let pane = activeConversation else { return }
-        // Don't close the last pane
-        guard allConversations.count > 1 else { return }
+        guard paneCount > 1 else { return }
         closePane(pane)
     }
 
-    /// Replace the entire root with a fresh welcome conversation.
+    /// Reset the focused pane to a fresh welcome conversation.
     func newThread() {
+        guard let pane = focusedConversation else { return }
         let c = makeConversation()
-        root = .conversation(c)
+        replaceNode(containing: pane, with: .conversation(c))
         focusedConversation = c
+    }
+
+    private static func countLeaves(_ node: PaneNode) -> Int {
+        switch node {
+        case .conversation: return 1
+        case .split(_, _, let first, let second):
+            return countLeaves(first) + countLeaves(second)
+        }
     }
 
     private func collectConversations(from node: PaneNode) -> [ConversationState] {

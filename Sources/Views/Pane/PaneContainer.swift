@@ -26,9 +26,7 @@ struct PaneContainer: View {
 
     @ViewBuilder
     private func dimOverlay(for state: ConversationState) -> some View {
-        // Dim unfocused panes when there are multiple.
-        // Clicking the overlay focuses the pane and dismisses it.
-        if paneState.allConversations.count > 1 && paneState.activeConversation !== state {
+        if paneState.paneCount > 1 && paneState.focusedConversation !== state {
             Color.black.opacity(0.25)
                 .contentShape(Rectangle())
                 .onTapGesture {
@@ -42,6 +40,7 @@ struct PaneContainer: View {
 struct PaneSplit<First: View, Second: View>: View {
     let direction: Axis
     @State private var ratio: CGFloat
+    @State private var isDragging = false
     let first: First
     let second: Second
 
@@ -60,18 +59,25 @@ struct PaneSplit<First: View, Second: View>: View {
     var body: some View {
         GeometryReader { geo in
             let totalSize = direction == .horizontal ? geo.size.width : geo.size.height
+            let firstSize = round(totalSize * ratio)
 
             if direction == .horizontal {
                 HStack(spacing: 0) {
-                    first.frame(width: totalSize * ratio)
-                    PaneDivider(direction: direction, ratio: $ratio, totalSize: totalSize)
+                    first
+                        .frame(width: firstSize)
+                        .transaction { $0.animation = isDragging ? nil : $0.animation }
+                    PaneDivider(direction: direction, ratio: $ratio, totalSize: totalSize, isDragging: $isDragging)
                     second
+                        .transaction { $0.animation = isDragging ? nil : $0.animation }
                 }
             } else {
                 VStack(spacing: 0) {
-                    first.frame(height: totalSize * ratio)
-                    PaneDivider(direction: direction, ratio: $ratio, totalSize: totalSize)
+                    first
+                        .frame(height: firstSize)
+                        .transaction { $0.animation = isDragging ? nil : $0.animation }
+                    PaneDivider(direction: direction, ratio: $ratio, totalSize: totalSize, isDragging: $isDragging)
                     second
+                        .transaction { $0.animation = isDragging ? nil : $0.animation }
                 }
             }
         }
@@ -83,6 +89,7 @@ struct PaneDivider: View {
     let direction: Axis
     @Binding var ratio: CGFloat
     let totalSize: CGFloat
+    @Binding var isDragging: Bool
     @State private var dragStartRatio: CGFloat?
 
     var body: some View {
@@ -92,12 +99,13 @@ struct PaneDivider: View {
                 width: direction == .horizontal ? 1 : nil,
                 height: direction == .vertical ? 1 : nil
             )
-            .contentShape(Rectangle().inset(by: -3))
+            .contentShape(Rectangle().inset(by: -4))
             .gesture(
-                DragGesture()
+                DragGesture(minimumDistance: 1)
                     .onChanged { value in
                         if dragStartRatio == nil {
                             dragStartRatio = ratio
+                            isDragging = true
                         }
                         let offset = direction == .horizontal ? value.translation.width : value.translation.height
                         let newRatio = (dragStartRatio ?? ratio) + offset / totalSize
@@ -105,6 +113,7 @@ struct PaneDivider: View {
                     }
                     .onEnded { _ in
                         dragStartRatio = nil
+                        isDragging = false
                     }
             )
             .onHover { hovering in

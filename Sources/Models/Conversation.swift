@@ -1,4 +1,49 @@
 import Foundation
+import SwiftUI
+
+/// Interaction mode — mirrors Claude Code's Shift+Tab cycling.
+enum InteractionMode: CaseIterable {
+    case normal       // default: confirm each edit
+    case acceptEdits  // auto-accept file edits
+    case plan         // read-only analysis
+
+    var label: String {
+        switch self {
+        case .normal: return "? for shortcuts"
+        case .acceptEdits: return "accept edits on"
+        case .plan: return "plan mode on"
+        }
+    }
+
+    var statusIcon: String {
+        switch self {
+        case .normal: return "⏵"
+        case .acceptEdits: return "⏵⏵"
+        case .plan: return "⏸"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .normal: return .orange
+        case .acceptEdits: return .green
+        case .plan: return .blue
+        }
+    }
+
+    func next() -> InteractionMode {
+        let all = Self.allCases
+        let idx = all.firstIndex(of: self)!
+        return all[(idx + 1) % all.count]
+    }
+}
+
+struct PendingMessage: Identifiable {
+    let id = UUID()
+    let prompt: String       // full prompt sent to CLI
+    let displayText: String  // user-visible text
+    let attachments: [URL]
+}
 
 @Observable
 final class ConversationState: Identifiable {
@@ -16,8 +61,10 @@ final class ConversationState: Identifiable {
     var cachedTokens: Int
     var totalTokens: Int
     var contextPercent: Double
+    var contextWindowSize: Int
     var gitBranch: String
     let sessionStart: Date
+    var interactionMode: InteractionMode = .normal
 
     /// Provider state — supplies the clother executable path.
     var providerState: ProviderState?
@@ -30,8 +77,10 @@ final class ConversationState: Identifiable {
     private var targetAssistantIndex: Int = -1
     /// Last prompt sent to CLI, kept for session-not-found retry.
     private var lastPrompt: String = ""
-    /// Pending prompts queued while streaming. User messages are already in `messages`.
-    private var pendingPrompts: [String] = []
+
+    /// Messages queued while streaming. Displayed as cards above the composer;
+    /// moved into `messages` when actually sent.
+    var pendingMessages: [PendingMessage] = []
 
     /// Selected index in the slash command menu (shared so ConversationView can render the menu).
     var slashSelectedIndex: Int = 0
@@ -54,6 +103,7 @@ final class ConversationState: Identifiable {
         self.cachedTokens = 0
         self.totalTokens = 0
         self.contextPercent = 0
+        self.contextWindowSize = 200_000
         self.gitBranch = ""
         self.sessionStart = Date()
         refreshGitBranch()
@@ -120,21 +170,36 @@ final class ConversationState: Identifiable {
             }
         }
 
-        // Add user message with image blocks (display immediately)
+        draftText = ""
+
+        // If currently streaming, queue as pending (shown as card above composer)
+        if isStreaming {
+            pendingMessages.append(PendingMessage(
+                prompt: prompt, displayText: text, attachments: attachments
+            ))
+            return
+        }
+
+        // Add user message to chat and start request
+        appendUserMessage(text: text, attachments: attachments)
+        startRequest(prompt: prompt)
+    }
+
+    func removePending(at index: Int) {
+        guard pendingMessages.indices.contains(index) else { return }
+        pendingMessages.remove(at: index)
+    }
+
+    func removePending(id: UUID) {
+        pendingMessages.removeAll { $0.id == id }
+    }
+
+    private func appendUserMessage(text: String, attachments: [URL]) {
         var userBlocks: [ContentBlock] = attachments.map { .image(ImageContent(url: $0)) }
         if !text.isEmpty {
             userBlocks.append(.text(TextContent(text: text)))
         }
         messages.append(Message(role: .user, blocks: userBlocks))
-        draftText = ""
-
-        // If currently streaming, queue prompt for later
-        if isStreaming {
-            pendingPrompts.append(prompt)
-            return
-        }
-
-        startRequest(prompt: prompt)
     }
 
     private func startRequest(prompt: String) {
@@ -178,9 +243,10 @@ final class ConversationState: Identifiable {
     }
 
     private func sendNextPending() {
-        guard !pendingPrompts.isEmpty else { return }
-        let next = pendingPrompts.removeFirst()
-        startRequest(prompt: next)
+        guard !pendingMessages.isEmpty else { return }
+        let next = pendingMessages.removeFirst()
+        appendUserMessage(text: next.displayText, attachments: next.attachments)
+        startRequest(prompt: next.prompt)
     }
 
     // MARK: - Event handling
@@ -281,7 +347,17 @@ final class ConversationState: Identifiable {
             inputTokens = info.inputTokens
             outputTokens = info.outputTokens
             cachedTokens = info.cacheReadTokens + info.cacheCreationTokens
-            totalTokens = info.inputTokens + info.outputTokens + cachedTokens
+            // Total context input = new tokens + cached tokens (all count toward context window)
+            totalTokens = info.inputTokens + info.cacheReadTokens + info.cacheCreationTokens
+            // Use CLI-provided context percentage if available; otherwise estimate
+            if let pct = info.contextUsedPercent {
+                contextPercent = Double(pct) / 100.0
+            } else {
+                contextPercent = min(Double(totalTokens) / Double(contextWindowSize), 1.0)
+            }
+            if let size = info.contextWindowSize {
+                contextWindowSize = size
+            }
             if info.isError {
                 messages[idx].blocks.append(
                     .error(ErrorContent(message: info.result))
@@ -299,7 +375,7 @@ final class ConversationState: Identifiable {
             }
 
             // Send next pending message, or pre-warm
-            if !pendingPrompts.isEmpty {
+            if !pendingMessages.isEmpty {
                 sendNextPending()
             } else if !info.isError {
                 processManager.prewarm(

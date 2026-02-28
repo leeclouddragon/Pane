@@ -38,9 +38,13 @@ struct StatusBarView: View {
             StatusSegment {
                 HStack(spacing: 3) {
                     Circle()
-                        .fill(Color.orange)
+                        .fill(conversation.interactionMode.color)
                         .frame(width: 5, height: 5)
-                    Text("bypass permissions")
+                    Text("\(conversation.interactionMode.statusIcon) \(conversation.interactionMode.label)")
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    conversation.interactionMode = conversation.interactionMode.next()
                 }
             }
 
@@ -51,8 +55,12 @@ struct StatusBarView: View {
                 Text(String(format: "$%.2f", conversation.totalCostUSD))
             }
 
-            ContextRing(percent: contextPercent)
-                .padding(.horizontal, 6)
+            ContextRing(
+                percent: conversation.contextPercent,
+                usedTokens: conversation.totalTokens,
+                maxTokens: conversation.contextWindowSize
+            )
+            .padding(.horizontal, 6)
         }
         .font(.system(size: 10, design: .monospaced))
         .foregroundStyle(.tertiary)
@@ -66,13 +74,6 @@ struct StatusBarView: View {
         let m = conversation.currentModel
         if m.isEmpty { return "—" }
         return shortModel(m)
-    }
-
-    private var contextPercent: Double {
-        // Estimate from total tokens vs typical context window (200k)
-        let total = conversation.totalTokens
-        guard total > 0 else { return 0 }
-        return min(Double(total) / 200_000.0, 1.0)
     }
 
     // MARK: - Formatting
@@ -132,29 +133,61 @@ struct StatusBarView: View {
 // MARK: - Context Ring
 
 /// Thin circular progress indicator showing context window usage.
+/// Hover to see detailed token usage in a popover.
 private struct ContextRing: View {
     let percent: Double
+    let usedTokens: Int
+    let maxTokens: Int
+
+    @State private var isHovered = false
 
     private let size: CGFloat = 12
     private let lineWidth: CGFloat = 1.5
 
     var body: some View {
         ZStack {
-            // Background track
             Circle()
                 .stroke(Color(nsColor: .separatorColor), lineWidth: lineWidth)
 
-            // Filled arc
             Circle()
                 .trim(from: 0, to: percent)
                 .stroke(ringColor, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
         }
         .frame(width: size, height: size)
+        .onHover { isHovered = $0 }
+        .popover(isPresented: $isHovered, arrowEdge: .top) {
+            contextPopover
+        }
     }
 
     private var ringColor: Color {
-        Color(nsColor: .secondaryLabelColor)
+        if percent > 0.85 { return .red }
+        if percent > 0.65 { return .orange }
+        return Color(nsColor: .secondaryLabelColor)
+    }
+
+    private var contextPopover: some View {
+        let pct = Int(percent * 100)
+        let left = 100 - pct
+        let usedK = String(format: "%.0f", Double(usedTokens) / 1000)
+        let maxK = String(format: "%.0f", Double(maxTokens) / 1000)
+
+        return VStack(alignment: .center, spacing: 4) {
+            Text("Context window:")
+                .foregroundStyle(.secondary)
+            Text("\(pct)% used (\(left)% left)")
+                .fontWeight(.medium)
+            Text("\(usedK)k / \(maxK)k tokens used")
+                .foregroundStyle(.secondary)
+
+            Divider().padding(.vertical, 2)
+
+            Text("Auto-compacts when full")
+                .foregroundStyle(.tertiary)
+        }
+        .font(.system(size: 11))
+        .padding(10)
     }
 }
 

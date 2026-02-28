@@ -141,7 +141,7 @@ struct ConversationView: View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(conversation.messages) { message in
                             MessageView(message: message)
                                 .id(message.id)
@@ -185,6 +185,10 @@ struct ConversationView: View {
 
             VStack(spacing: 6) {
                 slashMenuView
+
+                if !conversation.pendingMessages.isEmpty {
+                    PendingMessagesView(conversation: conversation)
+                }
 
                 ComposerView(conversation: conversation, isFocused: isFocusedPane)
 

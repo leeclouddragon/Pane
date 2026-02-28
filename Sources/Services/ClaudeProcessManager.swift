@@ -37,6 +37,9 @@ final class ClaudeProcessManager {
     // Cached environment (built once, reused)
     @ObservationIgnored private var cachedEnv: [String: String]?
 
+    /// CLI protocol adapter — encapsulates format-specific args, encoding, and parsing.
+    @ObservationIgnored var adapter: CLIProtocolAdapter = StreamJSONAdapter()
+
     var sessionId: String?
     var isRunning: Bool = false
 
@@ -78,31 +81,11 @@ final class ClaudeProcessManager {
 
     /// Build CLI arguments (without prompt).
     private func buildArgs() -> [String] {
-        var args = [
-            "-p",
-            "--output-format", "stream-json",
-            "--input-format", "stream-json",
-            "--verbose",
-            "--include-partial-messages",
-        ]
+        var args = adapter.formatArguments()
         if let sid = sessionId {
             args += ["--resume", sid]
         }
         return args
-    }
-
-    /// Encode a prompt as a stream-json user message line.
-    private func encodeUserMessage(_ prompt: String) -> Data {
-        let message: [String: Any] = [
-            "type": "user",
-            "message": [
-                "role": "user",
-                "content": prompt,
-            ],
-        ]
-        var data = try! JSONSerialization.data(withJSONObject: message)
-        data.append(0x0A) // newline
-        return data
     }
 
     // MARK: - Pre-warm
@@ -214,7 +197,7 @@ final class ClaudeProcessManager {
         proc.terminationHandler = { [weak self] p in
             debugLog("process terminated, status=\(p.terminationStatus) resultReceived=\(self?.resultReceived ?? false)")
             DispatchQueue.main.async {
-                guard let self else { return }
+                guard let self, self.process === p else { return }
                 self.isRunning = false
                 if !self.resultReceived {
                     let status = p.terminationStatus
@@ -227,7 +210,8 @@ final class ClaudeProcessManager {
                         isError: true,
                         costUSD: 0, durationMs: 0,
                         inputTokens: 0, outputTokens: 0,
-                        cacheReadTokens: 0, cacheCreationTokens: 0
+                        cacheReadTokens: 0, cacheCreationTokens: 0,
+                        contextUsedPercent: nil, contextWindowSize: nil
                     )))
                 }
             }
@@ -235,7 +219,7 @@ final class ClaudeProcessManager {
 
         // Write user message as JSON line — CLI processes immediately (no EOF needed)
         if let handle = warmStdinPipe?.fileHandleForWriting {
-            handle.write(encodeUserMessage(prompt))
+            handle.write(adapter.encodeUserMessage(prompt))
             handle.closeFile()
         }
 
@@ -280,7 +264,7 @@ final class ClaudeProcessManager {
         proc.terminationHandler = { [weak self] p in
             debugLog("process terminated, status=\(p.terminationStatus) resultReceived=\(self?.resultReceived ?? false)")
             DispatchQueue.main.async {
-                guard let self else { return }
+                guard let self, self.process === p else { return }
                 self.isRunning = false
                 if !self.resultReceived {
                     let status = p.terminationStatus
@@ -293,7 +277,8 @@ final class ClaudeProcessManager {
                         isError: true,
                         costUSD: 0, durationMs: 0,
                         inputTokens: 0, outputTokens: 0,
-                        cacheReadTokens: 0, cacheCreationTokens: 0
+                        cacheReadTokens: 0, cacheCreationTokens: 0,
+                        contextUsedPercent: nil, contextWindowSize: nil
                     )))
                 }
             }
@@ -304,7 +289,7 @@ final class ClaudeProcessManager {
         do {
             try proc.run()
             // Send prompt via stdin as JSON (CLI inits, then reads this)
-            stdinPipe.fileHandleForWriting.write(encodeUserMessage(prompt))
+            stdinPipe.fileHandleForWriting.write(adapter.encodeUserMessage(prompt))
             stdinPipe.fileHandleForWriting.closeFile()
         } catch {
             isRunning = false
@@ -314,7 +299,8 @@ final class ClaudeProcessManager {
                 isError: true,
                 costUSD: 0, durationMs: 0,
                 inputTokens: 0, outputTokens: 0,
-                cacheReadTokens: 0, cacheCreationTokens: 0
+                cacheReadTokens: 0, cacheCreationTokens: 0,
+                contextUsedPercent: nil, contextWindowSize: nil
             ))
             DispatchQueue.main.async { [weak self] in
                 self?.onEvent?(errorEvent)
@@ -323,9 +309,10 @@ final class ClaudeProcessManager {
     }
 
     func stop() {
-        process?.terminate()
+        let old = process
         process = nil
         isRunning = false
+        old?.terminate()
     }
 
     // MARK: - Line buffering
@@ -350,7 +337,7 @@ final class ClaudeProcessManager {
                     debugLog("stdout: \(line.prefix(200))")
                 }
             }
-            if !line.isEmpty, let event = StreamParser.parse(line: line) {
+            if !line.isEmpty, let event = adapter.parseLine(line) {
                 // Capture session ID from init
                 if case .systemInit(let info) = event {
                     DispatchQueue.main.async { [weak self] in
@@ -359,6 +346,11 @@ final class ClaudeProcessManager {
                 }
                 if case .result = event {
                     resultReceived = true
+                    // Reset isRunning BEFORE delivering the event, so that
+                    // sendNextPending() → startRequest() → send() sees isRunning=false.
+                    DispatchQueue.main.async { [weak self] in
+                        self?.isRunning = false
+                    }
                 }
                 DispatchQueue.main.async { [weak self] in
                     self?.onEvent?(event)

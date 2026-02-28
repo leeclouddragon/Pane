@@ -42,7 +42,8 @@ struct ComposerView: View {
                 slashMenuVisible: showSlashMenu && !filteredCommands.isEmpty,
                 onCommit: sendMessage,
                 onImagePaste: handleImagePaste,
-                onSlashNavigate: handleSlashNavigate
+                onSlashNavigate: handleSlashNavigate,
+                onModeToggle: { conversation.interactionMode = conversation.interactionMode.next() }
             )
             .frame(height: textHeight)
 

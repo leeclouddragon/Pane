@@ -360,32 +360,15 @@ struct SystemResultBlockView: View {
     @State private var isHovered = false
 
     var body: some View {
+        if content.isContextUsage {
+            ContextUsageView(content: content)
+        } else {
+            defaultView
+        }
+    }
+
+    private var defaultView: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Context usage progress bar (if detected)
-            if let pct = content.contextPercentage, let modelLine = content.modelLine {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(modelLine)
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundStyle(.secondary)
-
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            RoundedRectangle(cornerRadius: 3)
-                                .fill(.quaternary)
-                            RoundedRectangle(cornerRadius: 3)
-                                .fill(barColor(pct))
-                                .frame(width: geo.size.width * min(pct / 100, 1.0))
-                        }
-                    }
-                    .frame(height: 6)
-                }
-                .padding(.horizontal, 12)
-                .padding(.top, 10)
-                .padding(.bottom, 6)
-
-                Divider().padding(.horizontal, 8)
-            }
-
             // Raw text content (with ANSI color support)
             HStack(alignment: .top) {
                 ANSITextView(text: content.text)
@@ -423,9 +406,4 @@ struct SystemResultBlockView: View {
         .onHover { isHovered = $0 }
     }
 
-    private func barColor(_ percentage: Double) -> Color {
-        if percentage < 50 { return .green.opacity(0.6) }
-        if percentage < 80 { return .orange.opacity(0.6) }
-        return .red.opacity(0.6)
-    }
 }

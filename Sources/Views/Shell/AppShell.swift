@@ -24,15 +24,21 @@ struct AppShell: View {
     private var paneShortcuts: some View {
         Group {
             // Cmd+D: split horizontal
-            Button(action: { paneState.splitFocusedHorizontal() }) { EmptyView() }
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.2)) { paneState.splitFocusedHorizontal() }
+            }) { EmptyView() }
                 .keyboardShortcut("d", modifiers: .command)
 
             // Cmd+Shift+D: split vertical
-            Button(action: { paneState.splitFocusedVertical() }) { EmptyView() }
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.2)) { paneState.splitFocusedVertical() }
+            }) { EmptyView() }
                 .keyboardShortcut("d", modifiers: [.command, .shift])
 
             // Cmd+W: close pane
-            Button(action: { paneState.closeFocusedPane() }) { EmptyView() }
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.2)) { paneState.closeFocusedPane() }
+            }) { EmptyView() }
                 .keyboardShortcut("w", modifiers: .command)
 
             // Cmd+1/2/3/4: focus pane by index
