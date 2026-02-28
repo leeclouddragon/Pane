@@ -232,7 +232,7 @@ private struct QuickInputRootView: View {
                     onDismiss: onDismiss
                 )
             case .expanded(let conversation, let paneState):
-                FloatingPaneView(conversation: conversation)
+                FloatingPaneView(conversation: conversation, onDismiss: onDismiss)
                     .environment(paneState)
                     .environment(settings)
             }
@@ -245,6 +245,7 @@ private struct QuickInputRootView: View {
 
 private struct FloatingPaneView: View {
     @Bindable var conversation: ConversationState
+    var onDismiss: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -262,6 +263,39 @@ private struct FloatingPaneView: View {
             ConversationView(conversation: conversation)
         }
         .background(Color(nsColor: .textBackgroundColor))
+        .background(EscapeKeyHandler(onEscape: onDismiss))
+    }
+}
+
+// MARK: - Escape key handler (for expanded mode dismissal)
+
+private struct EscapeKeyHandler: NSViewRepresentable {
+    var onEscape: () -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = KeyHandlerView()
+        view.onEscape = onEscape
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        if let view = nsView as? KeyHandlerView {
+            view.onEscape = onEscape
+        }
+    }
+
+    private class KeyHandlerView: NSView {
+        var onEscape: (() -> Void)?
+
+        override var acceptsFirstResponder: Bool { true }
+
+        override func keyDown(with event: NSEvent) {
+            if event.keyCode == 53 { // Esc
+                onEscape?()
+            } else {
+                super.keyDown(with: event)
+            }
+        }
     }
 }
 

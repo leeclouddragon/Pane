@@ -54,9 +54,41 @@ struct MessageView: View {
             ForEach(message.blocks) { block in
                 ContentBlockView(block: block)
             }
+            if let seconds = message.durationSeconds {
+                MessageDuration(seconds: seconds)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+}
+
+// MARK: - Per-message completion duration (inline, like Claude Code)
+
+struct MessageDuration: View {
+    let seconds: Int
+
+    @State private var verb = Self.verbs.randomElement()!
+
+    var body: some View {
+        Text("\u{2736} \(verb) for \(formatDuration(seconds))")
+            .font(.system(size: 13))
+            .foregroundStyle(.quaternary)
+            .padding(.vertical, 2)
+    }
+
+    private func formatDuration(_ s: Int) -> String {
+        if s < 60 { return "\(s)s" }
+        let m = s / 60
+        let remainder = s % 60
+        if remainder == 0 { return "\(m)m" }
+        return "\(m)m \(remainder)s"
+    }
+
+    private static let verbs = [
+        "Baked", "Crunched", "Brewed", "Simmered",
+        "Whipped up", "Churned", "Distilled", "Forged",
+        "Crafted", "Cooked up", "Conjured", "Percolated",
+    ]
 }
 
 // MARK: - Streaming indicator (Claude Code style shimmer)
@@ -73,10 +105,6 @@ struct ActivityIndicator: View {
     @State private var completionVerb = Self.completionVerbs.randomElement()!
     @State private var color = Self.palette.randomElement()!
 
-    @State private var shimmerPhase: CGFloat = 0
-    @State private var starScale: CGFloat = 0.85
-    @State private var starRotation: Double = 0
-
     var body: some View {
         if isStreaming {
             streamingView
@@ -88,57 +116,53 @@ struct ActivityIndicator: View {
     // MARK: - Streaming state
 
     private var streamingView: some View {
-        HStack(spacing: 7) {
-            Text("\u{2736}")
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(color)
-                .scaleEffect(starScale)
-                .rotationEffect(.degrees(starRotation))
+        TimelineView(.animation) { timeline in
+            let t = timeline.date.timeIntervalSinceReferenceDate
+            let shimmerPhase = t.truncatingRemainder(dividingBy: 1.8) / 1.8
+            let starPhase = sin(t * .pi / 1.5)             // -1…1, period 3s
+            let starScale = 0.85 + 0.25 * (starPhase + 1) / 2  // 0.85…1.1
+            let starRotation = t.truncatingRemainder(dividingBy: 4) / 4 * 360
 
-            shimmerText
+            HStack(spacing: 7) {
+                Text("\u{2736}")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(color)
+                    .scaleEffect(starScale)
+                    .rotationEffect(.degrees(starRotation))
 
-            if let start = startTime {
-                TimelineView(.periodic(from: start, by: 1)) { context in
-                    Text(formatDuration(Int(context.date.timeIntervalSince(start))))
-                        .font(.system(size: 11, weight: .medium))
+                shimmerText(phase: shimmerPhase)
+
+                if let start = startTime {
+                    Text(formatDuration(Int(timeline.date.timeIntervalSince(start))))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(color.opacity(0.5))
                 }
             }
-        }
-        .padding(.vertical, 6)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .onAppear {
-            withAnimation(.linear(duration: 1.8).repeatForever(autoreverses: false)) {
-                shimmerPhase = 1
-            }
-            withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
-                starScale = 1.1
-            }
-            withAnimation(.linear(duration: 4).repeatForever(autoreverses: false)) {
-                starRotation = 360
-            }
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private var shimmerText: some View {
+    private func shimmerText(phase: Double) -> some View {
         let label = "\(verb)..."
         return ZStack(alignment: .leading) {
             Text(label)
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(color.opacity(0.35))
 
             Text(label)
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(color)
                 .mask(
                     GeometryReader { geo in
+                        let w = geo.size.width
                         LinearGradient(
                             colors: [.clear, .white.opacity(0.5), .white, .white.opacity(0.5), .clear],
                             startPoint: .leading,
                             endPoint: .trailing
                         )
-                        .frame(width: geo.size.width * 0.5)
-                        .offset(x: -geo.size.width * 0.25 + shimmerPhase * geo.size.width * 1.25)
+                        .frame(width: w * 0.5)
+                        .offset(x: -w * 0.25 + CGFloat(phase) * w * 1.25)
                     }
                 )
         }
@@ -148,7 +172,7 @@ struct ActivityIndicator: View {
 
     private func completionView(_ seconds: Int) -> some View {
         Text("\u{2736} \(completionVerb) for \(formatDuration(seconds))")
-            .font(.system(size: 12))
+            .font(.system(size: 13))
             .foregroundStyle(.quaternary)
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -195,12 +219,12 @@ struct CompactingIndicator: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "arrow.triangle.2.circlepath")
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)
                 .rotationEffect(.degrees(rotation))
 
             Text("Compacting context...")
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
         }
         .padding(.vertical, 6)

@@ -1,23 +1,45 @@
 import SwiftUI
 
-/// Root view. Title bar + pane tree (with composer + status bar inside each pane).
+/// Root view. System toolbar + pane tree (with composer + status bar inside each pane).
 struct AppShell: View {
     @Environment(PaneState.self) private var paneState
     @Environment(AppSettings.self) private var settings
+    @State private var showHistory = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            TitleBarView()
-                .background(Color(nsColor: .windowBackgroundColor))
-
-            Divider()
-
+        GeometryReader { geo in
+            let zoom = settings.zoomLevel
             PaneContainer(node: paneState.root)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(width: geo.size.width / zoom, height: geo.size.height / zoom)
+                .scaleEffect(zoom, anchor: .topLeading)
         }
-        .ignoresSafeArea(.all, edges: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
-        .background(paneShortcuts)
+            .toolbar {
+                ToolbarItemGroup(placement: .navigation) {
+                    Button(action: { showHistory.toggle() }) {
+                        ClockIconView(size: 14)
+                            .foregroundStyle(.secondary)
+                    }
+                    .help("Recent Sessions")
+
+                    Button(action: { paneState.newThread() }) {
+                        ComposeIconView(size: 14)
+                            .foregroundStyle(.secondary)
+                    }
+                    .help("New Thread")
+                }
+
+                ToolbarItem(placement: .principal) {
+                    if let conv = paneState.activeConversation {
+                        Text(conv.displayTitle)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+            .background(paneShortcuts)
     }
 
     /// Hidden buttons that register keyboard shortcuts.

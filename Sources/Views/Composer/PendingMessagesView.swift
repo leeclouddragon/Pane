@@ -30,7 +30,7 @@ private struct PendingMessageCard: View {
                 .foregroundStyle(.tertiary)
 
             Text(pending.displayText)
-                .font(.system(size: 12))
+                .font(.system(size: 13))
                 .lineLimit(2)
                 .foregroundStyle(.secondary)
 

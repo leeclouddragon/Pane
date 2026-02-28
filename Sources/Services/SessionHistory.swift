@@ -13,6 +13,15 @@ struct SessionEntry: Identifiable {
 struct SessionHistory {
 
     static func scan(limit: Int = 20) -> [SessionEntry] {
+        let all = allCandidates()
+        let top = Array(all.prefix(limit * 3))
+        let enriched = enrich(top)
+        return Array(enriched.prefix(limit))
+    }
+
+    /// Collect all session file candidates sorted by modification date (newest first).
+    /// Fast: only reads directory metadata, no file content.
+    static func allCandidates() -> [SessionEntry] {
         let claudeDir = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude/projects")
         let fm = FileManager.default
@@ -55,16 +64,17 @@ struct SessionHistory {
             }
         }
 
-        // Sort by most recent, take top N
         entries.sort { $0.modifiedDate > $1.modifiedDate }
-        let top = Array(entries.prefix(limit * 3))
+        return entries
+    }
 
-        // Enrich with first user message, filter out empty sessions, then limit
-        let enriched = top.compactMap { entry -> SessionEntry? in
+    /// Enrich a batch of session entries with first message content.
+    /// Filters out empty sessions (no user message found).
+    static func enrich(_ entries: [SessionEntry]) -> [SessionEntry] {
+        entries.compactMap { entry -> SessionEntry? in
             let e = enrichEntry(entry)
             return e.firstMessage == entry.id ? nil : e
         }
-        return Array(enriched.prefix(limit))
     }
 
     private static func enrichEntry(_ entry: SessionEntry) -> SessionEntry {
@@ -214,13 +224,18 @@ struct SessionHistory {
                 }
 
             } else if type == "result" {
-                // Extract cost and context from the last result entry
+                // Extract cost, context, and duration from the last result entry
                 if let cost = json["total_cost_usd"] as? Double {
                     costUSD = cost
                 }
                 if let cw = json["context_window"] as? [String: Any],
                    let pct = cw["used_percentage"] as? Int {
                     contextPercent = Double(pct) / 100.0
+                }
+                // Apply duration to the last assistant message
+                if let durationMs = json["duration_ms"] as? Int, durationMs > 0,
+                   let lastIdx = messages.indices.last, messages[lastIdx].role == .assistant {
+                    messages[lastIdx].durationSeconds = max(durationMs / 1000, 1)
                 }
             }
         }

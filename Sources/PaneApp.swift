@@ -33,7 +33,7 @@ struct PaneApp: App {
                     RemoteControlServer.shared.startIfPossible(paneState: paneState)
                 }
         }
-        .windowStyle(.hiddenTitleBar)
+        .windowToolbarStyle(.unifiedCompact)
         .defaultSize(width: 960, height: 700)
         .commands {
             CommandGroup(replacing: .newItem) {
@@ -50,6 +50,23 @@ struct PaneApp: App {
 
                 Divider()
 
+                Button("Zoom In") {
+                    settings.zoomIn()
+                }
+                .keyboardShortcut("+", modifiers: .command)
+
+                Button("Zoom Out") {
+                    settings.zoomOut()
+                }
+                .keyboardShortcut("-", modifiers: .command)
+
+                Button("Actual Size") {
+                    settings.zoomReset()
+                }
+                .keyboardShortcut("0", modifiers: .command)
+
+                Divider()
+
                 Button("Split Right") {
                     // TODO: split horizontal
                 }
@@ -63,8 +80,7 @@ struct PaneApp: App {
         }
 
         Settings {
-            Text("Settings")
-                .frame(width: 400, height: 300)
+            SettingsView(providerState: paneState.providerState)
         }
     }
 }

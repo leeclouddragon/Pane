@@ -24,6 +24,7 @@ struct SessionInfo {
     let model: String
     let cwd: String
     let tools: [String]
+    let permissionMode: String
 }
 
 struct ResultInfo {
@@ -64,7 +65,8 @@ struct StreamParser {
             let model = json["model"] as? String ?? ""
             let cwd = json["cwd"] as? String ?? ""
             let tools = json["tools"] as? [String] ?? []
-            return .systemInit(SessionInfo(sessionId: sessionId, model: model, cwd: cwd, tools: tools))
+            let permissionMode = json["permissionMode"] as? String ?? ""
+            return .systemInit(SessionInfo(sessionId: sessionId, model: model, cwd: cwd, tools: tools, permissionMode: permissionMode))
 
         // streaming events
         case "stream_event":

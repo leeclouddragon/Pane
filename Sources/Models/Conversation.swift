@@ -76,13 +76,21 @@ final class ConversationState: Identifiable {
     /// Per-conversation provider selection. Falls back to providerState default.
     var activeProviderID: String = ""
 
-    /// The executable path for this conversation's selected provider.
-    var executablePath: String {
+    /// Launch configuration for this conversation's selected provider.
+    /// Uses `preferDirect` for non-normal modes to bypass clother's --dangerously-skip-permissions
+    /// which would override --permission-mode plan/acceptEdits.
+    /// Normal mode can safely use clother since both flags agree on bypass.
+    var currentLaunchConfig: LaunchConfig {
+        let preferDirect = (interactionMode == .plan || interactionMode == .acceptEdits)
         if let ps = providerState,
-           let match = ps.providers.first(where: { $0.id == activeProviderID }) {
-            return match.scriptPath
+           let entry = ps.providers.first(where: { $0.id == activeProviderID }) {
+            return ps.launchConfig(for: entry, preferDirect: preferDirect)
         }
-        return providerState?.executablePath ?? ClaudeProcessManager.findClaudeBinary()
+        return LaunchConfig(
+            executablePath: ClaudeProcessManager.findClaudeBinary(),
+            env: [:],
+            unsetEnv: []
+        )
     }
 
     let processManager = ClaudeProcessManager()
@@ -246,10 +254,13 @@ final class ConversationState: Identifiable {
         }
 
         lastPrompt = prompt
+        let lc = currentLaunchConfig
         processManager.send(
             prompt: prompt,
             cwd: workingDirectory,
-            executablePath: executablePath,
+            executablePath: lc.executablePath,
+            providerEnv: lc.env,
+            providerUnsetEnv: lc.unsetEnv,
             permissionMode: interactionMode
         )
     }
@@ -299,6 +310,19 @@ final class ConversationState: Identifiable {
             if !info.cwd.isEmpty {
                 workingDirectory = info.cwd
             }
+            // Sync interaction mode from CLI's actual permission mode
+            if !info.permissionMode.isEmpty {
+                let cliMode: InteractionMode
+                switch info.permissionMode {
+                case "plan": cliMode = .plan
+                case "acceptEdits": cliMode = .acceptEdits
+                default: cliMode = .normal
+                }
+                if interactionMode != cliMode {
+                    interactionMode = cliMode
+                    processManager.discardPrewarm()
+                }
+            }
             refreshGitBranch()
 
         case .textDelta(let text):
@@ -315,6 +339,11 @@ final class ConversationState: Identifiable {
             messages[idx].blocks.append(
                 .toolCall(ToolCallContent(tool: name, toolUseId: id, summary: "", detail: ""))
             )
+            // Sync mode when CLI autonomously enters/exits plan mode
+            if name == "EnterPlanMode" && interactionMode != .plan {
+                interactionMode = .plan
+                processManager.discardPrewarm()
+            }
 
         case .thinkingDelta(let text):
             // Append to current thinking block
@@ -356,10 +385,14 @@ final class ConversationState: Identifiable {
                 processManager.onEvent = { [weak self] event in
                     self?.handleEvent(event, generation: gen)
                 }
+                let lc = currentLaunchConfig
                 processManager.send(
                     prompt: lastPrompt,
                     cwd: workingDirectory,
-                    executablePath: executablePath,
+                    executablePath: lc.executablePath,
+                    providerEnv: lc.env,
+                    providerUnsetEnv: lc.unsetEnv,
+
                     permissionMode: interactionMode
                 )
                 return
@@ -399,9 +432,13 @@ final class ConversationState: Identifiable {
             if !pendingMessages.isEmpty {
                 sendNextPending()
             } else if !info.isError {
+                let lc = currentLaunchConfig
                 processManager.prewarm(
                     cwd: workingDirectory,
-                    executablePath: executablePath,
+                    executablePath: lc.executablePath,
+                    providerEnv: lc.env,
+                    providerUnsetEnv: lc.unsetEnv,
+
                     permissionMode: interactionMode
                 )
             }
@@ -431,7 +468,13 @@ final class ConversationState: Identifiable {
                 for blockIdx in stride(from: messages[msgIdx].blocks.count - 1, through: 0, by: -1) {
                     if case .toolCall(var content) = messages[msgIdx].blocks[blockIdx],
                        content.toolUseId == toolUseId {
-                        content.detail = resultContent
+                        // Cap stored output to prevent memory bloat (100K chars)
+                        if resultContent.count > 100_000 {
+                            content.detail = String(resultContent.prefix(100_000))
+                                + "\n\n… truncated (\(resultContent.count) total chars)"
+                        } else {
+                            content.detail = resultContent
+                        }
                         content.isError = isError
                         content.isRunning = false
                         messages[msgIdx].blocks[blockIdx] = .toolCall(content)

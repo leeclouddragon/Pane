@@ -8,7 +8,7 @@ struct ANSITextView: View {
 
     var body: some View {
         Text(attributed)
-            .font(.system(size: 11, design: .monospaced))
+            .font(.system(size: 12, design: .monospaced))
             .lineSpacing(2)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -71,7 +71,7 @@ struct ANSITextView: View {
 
         // Font weight
         if style.bold {
-            seg.font = .system(size: 11, weight: .bold, design: .monospaced)
+            seg.font = .system(size: 12, weight: .bold, design: .monospaced)
         }
 
         // Foreground color

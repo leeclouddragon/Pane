@@ -9,6 +9,11 @@ struct ConversationView: View {
     @Environment(PaneState.self) private var paneState
     @State private var recentSessions: [SessionEntry] = []
     @State private var sessionsLoaded = false
+    @State private var allCandidates: [SessionEntry] = []
+    @State private var nextCandidateIndex = 0
+    @State private var hasMoreSessions = true
+    @State private var isLoadingMore = false
+    private let sessionPageSize = 20
 
     // MARK: - Slash menu (computed from conversation.draftText)
 
@@ -89,35 +94,48 @@ struct ConversationView: View {
                         .padding(.horizontal, 6)
                         .padding(.bottom, 6)
 
-                        ForEach(recentSessions) { session in
-                            Button(action: { resumeSession(session) }) {
-                                HStack(spacing: 8) {
-                                    ComposeIconView(size: 12)
-                                        .foregroundStyle(.tertiary)
-                                        .frame(width: 16)
+                        ScrollView {
+                            LazyVStack(spacing: 0) {
+                                ForEach(recentSessions) { session in
+                                    Button(action: { resumeSession(session) }) {
+                                        HStack(spacing: 8) {
+                                            ComposeIconView(size: 12)
+                                                .foregroundStyle(.tertiary)
+                                                .frame(width: 16)
 
-                                    Text(session.firstMessage)
-                                        .font(.system(size: 12))
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
+                                            Text(session.firstMessage)
+                                                .font(.system(size: 12))
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(1)
 
-                                    Spacer()
+                                            Spacer()
 
-                                    Text(shortPath(session.cwd))
-                                        .font(.system(size: 10, design: .monospaced))
-                                        .foregroundStyle(.quaternary)
-                                        .lineLimit(1)
+                                            Text(shortPath(session.cwd))
+                                                .font(.system(size: 10, design: .monospaced))
+                                                .foregroundStyle(.quaternary)
+                                                .lineLimit(1)
 
-                                    Text(relativeDate(session.modifiedDate))
-                                        .font(.system(size: 10, design: .monospaced))
-                                        .foregroundStyle(.quaternary)
+                                            Text(relativeDate(session.modifiedDate))
+                                                .font(.system(size: 10, design: .monospaced))
+                                                .foregroundStyle(.quaternary)
+                                        }
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 7)
+                                        .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
                                 }
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 7)
-                                .contentShape(Rectangle())
+
+                                if hasMoreSessions {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 8)
+                                        .onAppear { loadMoreSessions() }
+                                }
                             }
-                            .buttonStyle(.plain)
                         }
+                        .frame(maxHeight: 300)
                     }
                 }
             }
@@ -132,9 +150,10 @@ struct ConversationView: View {
             guard !sessionsLoaded else { return }
             sessionsLoaded = true
             DispatchQueue.global(qos: .userInitiated).async {
-                let result = SessionHistory.scan(limit: 8)
+                let candidates = SessionHistory.allCandidates()
                 DispatchQueue.main.async {
-                    recentSessions = result
+                    allCandidates = candidates
+                    loadMoreSessions()
                 }
             }
         }
@@ -142,8 +161,19 @@ struct ConversationView: View {
 
     // MARK: - Conversation layout
 
+    private var showPlanActionBar: Bool {
+        conversation.interactionMode == .plan
+        && !conversation.isStreaming
+        && (conversation.messages.last?.role == .assistant)
+        && !(conversation.messages.last?.blocks.isEmpty ?? true)
+    }
+
     private var conversationLayout: some View {
         VStack(spacing: 0) {
+            if conversation.interactionMode == .plan {
+                PlanModeBanner()
+            }
+
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -155,12 +185,14 @@ struct ConversationView: View {
                             CompactingIndicator()
                                 .padding(.vertical, 6)
                         }
-                        // Activity indicator: streaming (live timer) or completion (final duration)
-                        ActivityIndicator(
-                            isStreaming: conversation.isStreaming,
-                            startTime: conversation.isStreaming ? conversation.messages.last?.timestamp : nil,
-                            durationSeconds: conversation.messages.last?.durationSeconds
-                        )
+                        // Activity indicator: streaming only (completion durations are inline per message)
+                        if conversation.isStreaming {
+                            ActivityIndicator(
+                                isStreaming: true,
+                                startTime: conversation.messages.last?.timestamp,
+                                durationSeconds: nil
+                            )
+                        }
                         // Invisible anchor at the very bottom (includes bottom padding)
                         Color.clear
                             .frame(height: 24)
@@ -198,6 +230,17 @@ struct ConversationView: View {
             }
 
             VStack(spacing: 6) {
+                if showPlanActionBar {
+                    PlanActionBar { mode in
+                        conversation.interactionMode = mode
+                        conversation.processManager.discardPrewarm()
+                        let prompt = mode == .acceptEdits
+                            ? "Execute the plan above. Proceed with all changes."
+                            : "Execute the plan above."
+                        conversation.send(prompt)
+                    }
+                }
+
                 slashMenuView
 
                 if !conversation.pendingMessages.isEmpty {
@@ -218,6 +261,31 @@ struct ConversationView: View {
     }
 
     // MARK: - Helpers
+
+    private func loadMoreSessions() {
+        guard hasMoreSessions, !isLoadingMore else { return }
+        isLoadingMore = true
+
+        let batchSize = sessionPageSize * 3 // over-fetch to account for empty sessions
+        let endIndex = min(nextCandidateIndex + batchSize, allCandidates.count)
+        guard nextCandidateIndex < endIndex else {
+            hasMoreSessions = false
+            isLoadingMore = false
+            return
+        }
+        let batch = Array(allCandidates[nextCandidateIndex..<endIndex])
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let enriched = SessionHistory.enrich(batch)
+            let page = Array(enriched.prefix(sessionPageSize))
+            DispatchQueue.main.async {
+                recentSessions.append(contentsOf: page)
+                nextCandidateIndex = endIndex
+                hasMoreSessions = nextCandidateIndex < allCandidates.count
+                isLoadingMore = false
+            }
+        }
+    }
 
     /// Content length of the last block in the last message — triggers scroll on any streaming content.
     /// Capped to avoid expensive .count on very large strings (only used as change signal).

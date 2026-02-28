@@ -14,7 +14,7 @@ struct SlashMenuView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
                 Text("Search")
-                    .font(.system(size: 12))
+                    .font(.system(size: 13))
                     .foregroundStyle(.tertiary)
             }
             .padding(.horizontal, 12)
@@ -69,10 +69,10 @@ private struct SlashMenuRow: View {
                 .frame(width: 20, alignment: .center)
 
             Text(command.name)
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
 
             Text(command.description)
-                .font(.system(size: 11))
+                .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
 

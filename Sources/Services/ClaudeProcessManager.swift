@@ -35,8 +35,11 @@ final class ClaudeProcessManager {
     @ObservationIgnored private var warmExePath: String?
     @ObservationIgnored private var warmPermissionMode: InteractionMode?
 
-    // Cached environment (built once, reused)
-    @ObservationIgnored private var cachedEnv: [String: String]?
+    // Cached base environment (built once, reused)
+    @ObservationIgnored private var cachedBaseEnv: [String: String]?
+    // Provider env for the current/warm process
+    @ObservationIgnored private var warmProviderEnv: [String: String]?
+    @ObservationIgnored private var warmProviderUnsetEnv: [String]?
 
     /// CLI protocol adapter — encapsulates format-specific args, encoding, and parsing.
     @ObservationIgnored var adapter: CLIProtocolAdapter = StreamJSONAdapter()
@@ -61,9 +64,9 @@ final class ClaudeProcessManager {
         return result
     }
 
-    /// Build and cache the environment dictionary.
-    private func resolveEnv() -> [String: String] {
-        if let cached = cachedEnv { return cached }
+    /// Build the base environment (without provider overrides). Cached.
+    private func baseEnv() -> [String: String] {
+        if let cached = cachedBaseEnv { return cached }
         var env = ProcessInfo.processInfo.environment
         env.removeValue(forKey: "CLAUDECODE")
         env["CLOTHER_NO_BANNER"] = "1"
@@ -76,16 +79,33 @@ final class ClaudeProcessManager {
         ]
         let existingPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
         env["PATH"] = (extraPaths + [existingPath]).joined(separator: ":")
-        cachedEnv = env
+        cachedBaseEnv = env
+        return env
+    }
+
+    /// Build environment with provider-specific overrides merged in.
+    private func resolveEnv(
+        providerEnv: [String: String] = [:],
+        providerUnsetEnv: [String] = []
+    ) -> [String: String] {
+        var env = baseEnv()
+        for key in providerUnsetEnv {
+            env.removeValue(forKey: key)
+        }
+        for (key, value) in providerEnv {
+            env[key] = value
+        }
         return env
     }
 
     /// Build CLI arguments (without prompt).
+    /// Uses --permission-mode exclusively to avoid --dangerously-skip-permissions
+    /// overriding plan mode.
     private func buildArgs(permissionMode: InteractionMode = .normal) -> [String] {
         var args = adapter.formatArguments()
         switch permissionMode {
         case .normal:
-            break
+            args += ["--permission-mode", "bypassPermissions"]
         case .acceptEdits:
             args += ["--permission-mode", "acceptEdits"]
         case .plan:
@@ -102,12 +122,18 @@ final class ClaudeProcessManager {
     /// Start a process ahead of time without a prompt.
     /// The process initializes (Node.js startup, config loading, MCP connections)
     /// and waits for stdin input. When send() is called, the prompt is piped in.
-    func prewarm(cwd: String, executablePath: String? = nil, permissionMode: InteractionMode = .normal) {
+    func prewarm(
+        cwd: String,
+        executablePath: String? = nil,
+        providerEnv: [String: String] = [:],
+        providerUnsetEnv: [String] = [],
+        permissionMode: InteractionMode = .normal
+    ) {
         // Don't pre-warm if one is already running or cwd is empty
         guard warmProcess == nil, !cwd.isEmpty else { return }
 
         let exe = executablePath ?? Self.findClaudeBinary()
-        let env = resolveEnv()
+        let env = resolveEnv(providerEnv: providerEnv, providerUnsetEnv: providerUnsetEnv)
 
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: exe)
@@ -172,7 +198,14 @@ final class ClaudeProcessManager {
 
     // MARK: - Send
 
-    func send(prompt: String, cwd: String, executablePath: String? = nil, permissionMode: InteractionMode = .normal) {
+    func send(
+        prompt: String,
+        cwd: String,
+        executablePath: String? = nil,
+        providerEnv: [String: String] = [:],
+        providerUnsetEnv: [String] = [],
+        permissionMode: InteractionMode = .normal
+    ) {
         guard !isRunning else {
             debugLog("send() blocked — isRunning=true")
             return
@@ -192,7 +225,7 @@ final class ClaudeProcessManager {
             // Discard stale pre-warm if any
             discardPrewarm()
             debugLog("send() creating new process (exe=\(exe) cwd=\(cwd) mode=\(permissionMode) sid=\(sessionId ?? "nil"))")
-            launchNewProcess(prompt: prompt, cwd: cwd, exe: exe, permissionMode: permissionMode)
+            launchNewProcess(prompt: prompt, cwd: cwd, exe: exe, providerEnv: providerEnv, providerUnsetEnv: providerUnsetEnv, permissionMode: permissionMode)
         }
     }
 
@@ -242,8 +275,15 @@ final class ClaudeProcessManager {
     }
 
     /// Launch a brand new process and send the prompt via stdin JSON.
-    private func launchNewProcess(prompt: String, cwd: String, exe: String, permissionMode: InteractionMode = .normal) {
-        let env = resolveEnv()
+    private func launchNewProcess(
+        prompt: String,
+        cwd: String,
+        exe: String,
+        providerEnv: [String: String] = [:],
+        providerUnsetEnv: [String] = [],
+        permissionMode: InteractionMode = .normal
+    ) {
+        let env = resolveEnv(providerEnv: providerEnv, providerUnsetEnv: providerUnsetEnv)
 
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: exe)

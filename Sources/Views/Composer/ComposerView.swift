@@ -82,12 +82,15 @@ struct ComposerView: View {
                 if let ps = conversation.providerState, !ps.providers.isEmpty {
                     Menu {
                         ForEach(ps.providers) { provider in
-                            Button(provider.id) {
+                            Button(provider.displayName) {
                                 conversation.activeProviderID = provider.id
                             }
                         }
                     } label: {
-                        Text(conversation.activeProviderID)
+                        let activeName = ps.providers
+                            .first(where: { $0.id == conversation.activeProviderID })?
+                            .displayName ?? conversation.activeProviderID
+                        Text(activeName)
                             .font(.system(size: 10, design: .monospaced))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)

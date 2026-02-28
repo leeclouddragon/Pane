@@ -33,4 +33,28 @@ enum WidthMode: String, CaseIterable {
 @Observable
 final class AppSettings {
     var widthMode: WidthMode = .normal
+    /// Text zoom level: 0.5 … 2.0, default 1.0. Persisted via UserDefaults.
+    var zoomLevel: CGFloat {
+        didSet { UserDefaults.standard.set(zoomLevel, forKey: "zoomLevel") }
+    }
+
+    static let zoomMin: CGFloat = 0.5
+    static let zoomMax: CGFloat = 2.0
+    static let zoomStep: CGFloat = 0.1
+    static let zoomDefault: CGFloat = 1.0
+
+    init() {
+        let stored = UserDefaults.standard.double(forKey: "zoomLevel")
+        self.zoomLevel = stored > 0 ? CGFloat(stored) : Self.zoomDefault
+    }
+
+    func zoomIn() {
+        zoomLevel = min(zoomLevel + Self.zoomStep, Self.zoomMax)
+    }
+    func zoomOut() {
+        zoomLevel = max(zoomLevel - Self.zoomStep, Self.zoomMin)
+    }
+    func zoomReset() {
+        zoomLevel = Self.zoomDefault
+    }
 }

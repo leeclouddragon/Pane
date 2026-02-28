@@ -76,7 +76,7 @@ struct CodeBlockView: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(content.code)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(size: 12, design: .monospaced))
                     .textSelection(.enabled)
                     .padding(.horizontal, 12)
                     .padding(.vertical, content.language != nil ? 4 : 12)
@@ -100,45 +100,52 @@ struct ToolCallBlockView: View {
     let content: ToolCallContent
     @State private var isExpanded = false
 
+    private var isReviewable: Bool {
+        ["edit", "write", "bash"].contains(content.tool.lowercased())
+    }
+
     var body: some View {
+        if isReviewable {
+            reviewView
+        } else {
+            researchView
+        }
+    }
+
+    // MARK: - Research: lightweight, like Thinking blocks
+    // Shows: tool name + input params (header) + brief output summary (collapsed)
+
+    private var researchView: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header row
-            HStack(spacing: 6) {
-                // Spinning indicator or tool icon
+            // Header: tool name + input params
+            HStack(spacing: 5) {
                 if content.isRunning {
                     ProgressView()
                         .controlSize(.mini)
-                        .frame(width: 14, height: 14)
-                } else {
-                    Image(systemName: toolIcon(content.tool))
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(content.isError ? .red : .orange)
-                        .frame(width: 14)
+                        .frame(width: 12, height: 12)
                 }
 
                 Text(content.tool)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.tertiary)
 
-                // Summary: file path, command, pattern, etc.
                 if !content.summary.isEmpty {
                     Text(abbreviatePath(content.summary))
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(.system(size: 12, design: .monospaced))
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
 
-                Spacer()
-
                 if !content.detail.isEmpty {
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.quaternary)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.tertiary)
                 }
+
+                Spacer()
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
+            .padding(.vertical, 4)
             .contentShape(Rectangle())
             .onTapGesture {
                 if !content.detail.isEmpty {
@@ -148,64 +155,286 @@ struct ToolCallBlockView: View {
                 }
             }
 
-            // Expandable detail (tool result output)
-            if isExpanded && !content.detail.isEmpty {
-                Divider().padding(.horizontal, 8)
-
-                ScrollView(.vertical, showsIndicators: true) {
-                    Text(truncatedDetail)
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(content.isError ? .red : .secondary)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                }
-                .frame(maxHeight: 200)
-
-                if content.detail.count > Self.detailTruncateLimit {
-                    Button(action: {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(content.detail, forType: .string)
-                    }) {
-                        Text("Copied full output (\(content.detail.count) chars)")
-                            .font(.system(size: 9))
+            if !content.detail.isEmpty && !content.isRunning {
+                if isExpanded {
+                    ScrollView(.vertical, showsIndicators: true) {
+                        Text(truncatedDetail)
+                            .font(.system(size: 12, design: .monospaced))
                             .foregroundStyle(.tertiary)
-                            .padding(.horizontal, 10)
-                            .padding(.bottom, 6)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.top, 2)
                     }
-                    .buttonStyle(.plain)
+                    .frame(maxHeight: 200)
+                } else {
+                    Text("└ \(resultSummary)")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.quaternary)
+                        .padding(.leading, 4)
                 }
             }
         }
-        .background(.quaternary.opacity(0.3))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
+    // MARK: - Review: container for Edit, Write, Bash
+
+    @ViewBuilder
+    private var reviewView: some View {
+        let hasError = content.isError
+
+        VStack(alignment: .leading, spacing: 0) {
+            // Header: same layout as researchView
+            HStack(spacing: 5) {
+                if content.isRunning {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .frame(width: 12, height: 12)
+                }
+
+                Text(content.tool)
+                    .font(.system(size: 13))
+                    .foregroundStyle(hasError ? AnyShapeStyle(.red) : AnyShapeStyle(.tertiary))
+
+                if !content.summary.isEmpty {
+                    Text(abbreviatePath(content.summary))
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(hasError ? AnyShapeStyle(.red.opacity(0.7)) : AnyShapeStyle(.tertiary))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+
+                if reviewHasExpandableContent {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.tertiary)
+                }
+
+                Spacer()
+            }
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if reviewHasExpandableContent {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        isExpanded.toggle()
+                    }
+                }
+            }
+
+            // Summary when collapsed
+            if !isExpanded && !content.isRunning {
+                if let mc = mutationContent {
+                    Text("└ \(mc.collapsed)")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.quaternary)
+                        .padding(.leading, 4)
+                }
+            }
+
+            // Content: Edit→diff, Write→preview, Bash→command output
+            if isExpanded && !content.isRunning {
+                if let mc = mutationContent {
+                    mc.expandedView
+                } else if !content.detail.isEmpty {
+                    let detailColor: Color = hasError ? .red : .secondary
+                    ScrollView(.vertical, showsIndicators: true) {
+                        Text(truncatedDetail)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(detailColor)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 4)
+                    }
+                    .frame(maxHeight: 300)
+
+                    if content.detail.count > Self.detailTruncateLimit {
+                        Button(action: {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(content.detail, forType: .string)
+                        }) {
+                            Text("Copy full output (\(content.detail.count) chars)")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.tertiary)
+                                .padding(.bottom, 4)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .onAppear {
+            isExpanded = true
+        }
+    }
+
+    // MARK: - Helpers
+
     private static let detailTruncateLimit = 20_000
+    private static let bashTruncateLimit = 5_000
+
+    private var effectiveTruncateLimit: Int {
+        content.tool.lowercased() == "bash" ? Self.bashTruncateLimit : Self.detailTruncateLimit
+    }
 
     private var truncatedDetail: String {
-        if content.detail.count > Self.detailTruncateLimit {
-            return String(content.detail.prefix(Self.detailTruncateLimit)) + "\n\n… (\(content.detail.count - Self.detailTruncateLimit) more chars, click to copy full output)"
+        let limit = effectiveTruncateLimit
+        if content.detail.count > limit {
+            return String(content.detail.prefix(limit)) + "\n\n… (\(content.detail.count - limit) more chars)"
         }
         return content.detail
     }
 
-    private func toolIcon(_ tool: String) -> String {
-        switch tool.lowercased() {
-        case "read": return "doc.text"
-        case "edit": return "pencil.line"
-        case "write": return "doc.badge.plus"
-        case "bash": return "terminal"
-        case "glob": return "folder.badge.questionmark"
-        case "grep": return "magnifyingglass"
-        case "task": return "person.2"
-        case "webfetch": return "globe"
-        default: return "wrench"
+    /// Brief output summary for research tools (shown when collapsed).
+    private var resultSummary: String {
+        let lines = content.detail.components(separatedBy: "\n").filter { !$0.isEmpty }
+        let count = lines.count
+        switch content.tool.lowercased() {
+        case "read":
+            return "\(count) lines"
+        case "grep":
+            return "\(count) results"
+        case "glob":
+            return "\(count) files"
+        default:
+            return "\(count) lines"
         }
     }
 
-    /// Shorten absolute paths: /Users/foo/codebase/Bar/src/main.swift → ~/codebase/Bar/src/main.swift
+    private var isMutationTool: Bool {
+        ["edit", "write"].contains(content.tool.lowercased())
+    }
+
+    /// reviewView: expandable if has mutation input or command output
+    private var reviewHasExpandableContent: Bool {
+        isMutationTool || !content.detail.isEmpty
+    }
+
+    // MARK: - Mutation content (Edit diff / Write preview)
+
+    struct MutationView {
+        let collapsed: String
+        let expandedView: AnyView
+    }
+
+    private var mutationContent: MutationView? {
+        guard let data = content.inputJson.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+
+        switch content.tool.lowercased() {
+        case "edit":
+            guard let oldStr = obj["old_string"] as? String,
+                  let newStr = obj["new_string"] as? String
+            else { return nil }
+            let removed = oldStr.components(separatedBy: "\n")
+            let added = newStr.components(separatedBy: "\n")
+            let summary = diffSummary(removed: removed.count, added: added.count)
+            return MutationView(
+                collapsed: summary,
+                expandedView: AnyView(editDiffView(removed: removed, added: added, summary: summary))
+            )
+        case "write":
+            guard let written = obj["content"] as? String else { return nil }
+            let lines = written.components(separatedBy: "\n")
+            return MutationView(
+                collapsed: "Added \(lines.count) lines",
+                expandedView: AnyView(writePreviewView(lines))
+            )
+        default:
+            return nil
+        }
+    }
+
+    private func diffSummary(removed: Int, added: Int) -> String {
+        if removed == 0 { return "Added \(added) lines" }
+        if added == 0 { return "Removed \(removed) lines" }
+        return "\(removed) removed, \(added) added"
+    }
+
+    private func editDiffView(removed: [String], added: [String], summary: String) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Summary: └ Added 2 lines
+            Text("└ \(summary)")
+                .font(.system(size: 12))
+                .foregroundStyle(.quaternary)
+                .padding(.leading, 4)
+                .padding(.bottom, 4)
+
+            // Diff lines with line numbers
+            ScrollView(.vertical, showsIndicators: true) {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(removed.enumerated()), id: \.offset) { idx, line in
+                        diffLine(number: idx + 1, marker: "-", text: line, color: .red.opacity(0.8), bg: .red.opacity(0.08))
+                    }
+                    ForEach(Array(added.enumerated()), id: \.offset) { idx, line in
+                        diffLine(number: idx + 1, marker: "+", text: line, color: .green.opacity(0.8), bg: .green.opacity(0.08))
+                    }
+                }
+                .textSelection(.enabled)
+            }
+            .frame(maxHeight: 300)
+        }
+    }
+
+    private func diffLine(number: Int, marker: String, text: String, color: Color, bg: Color) -> some View {
+        HStack(alignment: .top, spacing: 0) {
+            Text("\(number)")
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(.quaternary)
+                .frame(width: 32, alignment: .trailing)
+            Text(" \(marker) ")
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(color)
+            Text(text)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(color)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 1)
+        .background(bg)
+    }
+
+    private func writePreviewView(_ lines: [String]) -> some View {
+        let preview = Array(lines.prefix(50))
+        let truncated = lines.count > 50
+        return VStack(alignment: .leading, spacing: 0) {
+            Text("└ Added \(lines.count) lines")
+                .font(.system(size: 12))
+                .foregroundStyle(.quaternary)
+                .padding(.leading, 4)
+                .padding(.bottom, 4)
+
+            ScrollView(.vertical, showsIndicators: true) {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(preview.enumerated()), id: \.offset) { idx, line in
+                        HStack(alignment: .top, spacing: 0) {
+                            Text("\(idx + 1)")
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundStyle(.quaternary)
+                                .frame(width: 32, alignment: .trailing)
+                            Text("   ")
+                                .font(.system(size: 12, design: .monospaced))
+                            Text(line)
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundStyle(.tertiary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding(.vertical, 1)
+                    }
+                    if truncated {
+                        Text("… \(lines.count - 50) more lines")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.quaternary)
+                            .padding(.top, 4)
+                            .padding(.leading, 36)
+                    }
+                }
+                .textSelection(.enabled)
+            }
+            .frame(maxHeight: 300)
+        }
+    }
+
     private func abbreviatePath(_ path: String) -> String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         if path.hasPrefix(home) {
@@ -231,7 +460,7 @@ struct ToolResultBlockView: View {
 
     var body: some View {
         Text(truncatedOutput)
-            .font(.system(size: 11, design: .monospaced))
+            .font(.system(size: 12, design: .monospaced))
             .foregroundStyle(content.isError ? .red : .secondary)
             .textSelection(.enabled)
             .padding(10)
@@ -253,18 +482,18 @@ struct ThinkingBlockView: View {
             HStack(spacing: 4) {
                 if content.isComplete {
                     Text("Thought for \(formattedDuration)")
-                        .font(.system(size: 12))
+                        .font(.system(size: 13))
                         .foregroundStyle(.tertiary)
                 } else {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
                         let elapsed = Int(context.date.timeIntervalSince(content.startTime))
                         if content.text.isEmpty {
                             Text("Thinking...")
-                                .font(.system(size: 12))
+                                .font(.system(size: 13))
                                 .foregroundStyle(.secondary)
                         } else {
                             Text("Thinking for \(elapsed)s")
-                                .font(.system(size: 12))
+                                .font(.system(size: 13))
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -328,7 +557,7 @@ struct ProgressBlockView: View {
             ProgressView()
                 .controlSize(.small)
             Text(content.label)
-                .font(.system(size: 11))
+                .font(.system(size: 12))
                 .foregroundStyle(.secondary)
         }
     }
@@ -342,10 +571,10 @@ struct ErrorBlockView: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 11))
+                .font(.system(size: 12))
                 .foregroundStyle(.red)
             Text(content.message)
-                .font(.system(size: 11))
+                .font(.system(size: 12))
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
