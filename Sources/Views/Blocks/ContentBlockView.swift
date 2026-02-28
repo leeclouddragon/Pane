@@ -21,6 +21,8 @@ struct ContentBlockView: View {
             ProgressBlockView(content: content)
         case .error(let content):
             ErrorBlockView(content: content)
+        case .image(let content):
+            ImageBlockView(content: content, compact: compact)
         }
     }
 }
@@ -319,5 +321,32 @@ struct ErrorBlockView: View {
             RoundedRectangle(cornerRadius: 6)
                 .stroke(.red.opacity(0.15), lineWidth: 0.5)
         )
+    }
+}
+
+// MARK: - Image
+
+struct ImageBlockView: View {
+    let content: ImageContent
+    var compact: Bool = false
+
+    var body: some View {
+        if let nsImage = NSImage(contentsOf: content.url) {
+            let maxW: CGFloat = compact ? 120 : 280
+            let maxH: CGFloat = compact ? 80 : 200
+
+            Button(action: { NSWorkspace.shared.open(content.url) }) {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: maxW, maxHeight: maxH)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(.separator.opacity(0.5), lineWidth: 0.5)
+                    )
+            }
+            .buttonStyle(.plain)
+        }
     }
 }

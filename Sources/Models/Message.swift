@@ -29,6 +29,7 @@ enum ContentBlock: Identifiable {
     case thinking(ThinkingContent)
     case progress(ProgressContent)
     case error(ErrorContent)
+    case image(ImageContent)
 
     var id: UUID {
         switch self {
@@ -39,6 +40,7 @@ enum ContentBlock: Identifiable {
         case .thinking(let c): c.id
         case .progress(let c): c.id
         case .error(let c): c.id
+        case .image(let c): c.id
         }
     }
 }
@@ -123,4 +125,9 @@ struct ProgressContent: Identifiable {
 struct ErrorContent: Identifiable {
     let id = UUID()
     var message: String
+}
+
+struct ImageContent: Identifiable {
+    let id = UUID()
+    var url: URL
 }

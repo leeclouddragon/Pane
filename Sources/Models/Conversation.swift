@@ -27,6 +27,8 @@ final class ConversationState: Identifiable {
     private var eventGeneration: Int = 0
     /// The message index where the current process should write assistant content.
     private var targetAssistantIndex: Int = -1
+    /// Last prompt sent to CLI, kept for session-not-found retry.
+    private var lastPrompt: String = ""
 
     init(
         title: String = "New Thread",
@@ -81,10 +83,18 @@ final class ConversationState: Identifiable {
 
     /// Display title: first user message or "New Thread"
     var displayTitle: String {
-        if let firstUser = messages.first(where: { $0.role == .user }),
-           case .text(let content) = firstUser.blocks.first {
-            let trimmed = content.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            return String(trimmed.prefix(40))
+        if let firstUser = messages.first(where: { $0.role == .user }) {
+            if let textBlock = firstUser.blocks.first(where: {
+                if case .text = $0 { return true } else { return false }
+            }), case .text(let content) = textBlock {
+                let trimmed = content.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                return String(trimmed.prefix(40))
+            }
+            if firstUser.blocks.contains(where: {
+                if case .image = $0 { return true } else { return false }
+            }) {
+                return "Image"
+            }
         }
         return title
     }
@@ -112,8 +122,12 @@ final class ConversationState: Identifiable {
             }
         }
 
-        // Add user message
-        let userMsg = Message(role: .user, blocks: [.text(TextContent(text: text))])
+        // Add user message with image blocks
+        var userBlocks: [ContentBlock] = attachments.map { .image(ImageContent(url: $0)) }
+        if !text.isEmpty {
+            userBlocks.append(.text(TextContent(text: text)))
+        }
+        let userMsg = Message(role: .user, blocks: userBlocks)
         messages.append(userMsg)
         draftText = ""
 
@@ -128,6 +142,7 @@ final class ConversationState: Identifiable {
             self?.handleEvent(event, generation: gen)
         }
 
+        lastPrompt = prompt
         processManager.send(
             prompt: prompt,
             cwd: workingDirectory,
@@ -213,21 +228,20 @@ final class ConversationState: Identifiable {
             // Session not found — clear stale sessionId and auto-retry without duplicating user msg
             if info.isError && info.result.contains("No conversation found") {
                 processManager.sessionId = nil
-                if idx > 0, let userBlock = messages[idx - 1].blocks.first,
-                   case .text(let content) = userBlock {
-                    // Retry: bump generation, keep existing messages, just restart process
-                    eventGeneration += 1
-                    let gen = eventGeneration
-                    processManager.onEvent = { [weak self] event in
-                        self?.handleEvent(event, generation: gen)
-                    }
-                    processManager.send(
-                        prompt: content.text,
-                        cwd: workingDirectory,
-                        executablePath: providerState?.executablePath
-                    )
-                    return
+                guard !lastPrompt.isEmpty else { break }
+
+                // Retry with the exact same prompt
+                eventGeneration += 1
+                let gen = eventGeneration
+                processManager.onEvent = { [weak self] event in
+                    self?.handleEvent(event, generation: gen)
                 }
+                processManager.send(
+                    prompt: lastPrompt,
+                    cwd: workingDirectory,
+                    executablePath: providerState?.executablePath
+                )
+                return
             }
 
             completeOpenThinkingBlocks(at: idx)
@@ -240,6 +254,14 @@ final class ConversationState: Identifiable {
             if info.isError {
                 messages[idx].blocks.append(
                     .error(ErrorContent(message: info.result))
+                )
+            }
+
+            // Pre-warm next process so it's ready when user sends again
+            if !info.isError {
+                processManager.prewarm(
+                    cwd: workingDirectory,
+                    executablePath: providerState?.executablePath
                 )
             }
 

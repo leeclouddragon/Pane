@@ -5,7 +5,7 @@ import AppKit
 struct InputTextView: NSViewRepresentable {
     @Binding var text: String
     @Binding var height: CGFloat
-    var font: NSFont = .systemFont(ofSize: 14)
+    var font: NSFont = .systemFont(ofSize: 13)
     var onCommit: () -> Void = {}
     var onImagePaste: ((NSImage) -> Void)?
 
@@ -22,6 +22,7 @@ struct InputTextView: NSViewRepresentable {
 
         let textView = PaneTextView()
         textView.delegate = context.coordinator
+        textView.coordinator = context.coordinator
         textView.font = font
         textView.backgroundColor = .clear
         textView.drawsBackground = false
@@ -46,7 +47,6 @@ struct InputTextView: NSViewRepresentable {
         textView.textContainer?.widthTracksTextView = true
 
         textView.onCommit = onCommit
-        textView.onImagePaste = onImagePaste
         context.coordinator.textView = textView
 
         scrollView.documentView = textView
@@ -62,7 +62,8 @@ struct InputTextView: NSViewRepresentable {
         }
 
         textView.onCommit = onCommit
-        textView.onImagePaste = onImagePaste
+        // Keep coordinator callbacks fresh
+        context.coordinator.parent = self
 
         // Auto focus
         DispatchQueue.main.async {
@@ -78,6 +79,10 @@ struct InputTextView: NSViewRepresentable {
 
         init(_ parent: InputTextView) {
             self.parent = parent
+        }
+
+        func handleImagePaste(_ image: NSImage) {
+            parent.onImagePaste?(image)
         }
 
         func textDidChange(_ notification: Notification) {
@@ -105,22 +110,34 @@ struct InputTextView: NSViewRepresentable {
 /// Custom NSTextView: placeholder + Enter to send, Shift+Enter for newline.
 class PaneTextView: NSTextView {
     var onCommit: () -> Void = {}
-    var onImagePaste: ((NSImage) -> Void)?
+    weak var coordinator: InputTextView.Coordinator?
 
-    override func paste(_ sender: Any?) {
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // Cmd+V: handle paste (SPM executable has no Edit menu, so paste: is never dispatched)
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+           event.charactersIgnoringModifiers == "v" {
+            pasteFromClipboard()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    private func pasteFromClipboard() {
         let pb = NSPasteboard.general
 
-        // Explicitly check for image pasteboard types
-        let imageTypes: [NSPasteboard.PasteboardType] = [.tiff, .png]
-        if let bestType = pb.availableType(from: imageTypes),
-           let data = pb.data(forType: bestType),
-           let image = NSImage(data: data),
+        // NSImage(pasteboard:) handles all image types NSImage supports (tiff, png, jpeg, heic, gif, webp, etc.)
+        // Only intercept when clipboard has no text — if both exist, prefer text paste.
+        if pb.string(forType: .string) == nil,
+           let image = NSImage(pasteboard: pb),
            image.isValid {
-            onImagePaste?(image)
+            coordinator?.handleImagePaste(image)
             return
         }
 
-        super.paste(sender)
+        // Fall back to text paste
+        if let text = pb.string(forType: .string) {
+            insertText(text, replacementRange: selectedRange())
+        }
     }
 
     override func keyDown(with event: NSEvent) {
@@ -139,7 +156,7 @@ class PaneTextView: NSTextView {
 
         if string.isEmpty {
             let attrs: [NSAttributedString.Key: Any] = [
-                .font: font ?? NSFont.systemFont(ofSize: 14),
+                .font: font ?? NSFont.systemFont(ofSize: 13),
                 .foregroundColor: NSColor.tertiaryLabelColor,
             ]
             let placeholder = NSAttributedString(string: "Message...", attributes: attrs)

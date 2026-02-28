@@ -12,6 +12,12 @@ struct ComposerView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // Attachments (above text input, like ChatGPT)
+            if !attachments.isEmpty {
+                AttachmentBar(attachments: $attachments)
+                    .padding(.bottom, 6)
+            }
+
             // Text input (auto-growing)
             InputTextView(
                 text: $conversation.draftText,
@@ -20,12 +26,6 @@ struct ComposerView: View {
                 onImagePaste: handleImagePaste
             )
             .frame(height: textHeight)
-
-            // Attachments
-            if !attachments.isEmpty {
-                AttachmentBar(attachments: $attachments)
-                    .padding(.top, 4)
-            }
 
             // Toolbar
             HStack(spacing: 6) {
@@ -67,14 +67,8 @@ struct ComposerView: View {
                             }
                         }
                     } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "bolt.horizontal")
-                                .font(.system(size: 10))
-                            Text(ps.activeProviderID)
-                                .font(.system(size: 11, design: .monospaced))
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 7, weight: .semibold))
-                        }
+                        Text(ps.activeProviderID)
+                            .font(.system(size: 11, design: .monospaced))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
                         .background(.quaternary.opacity(0.4))
@@ -87,13 +81,22 @@ struct ComposerView: View {
 
                 Spacer()
 
-                Button(action: sendMessage) {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 24))
-                        .foregroundStyle(canSend ? .secondary : .quaternary)
+                if conversation.isStreaming {
+                    Button(action: { conversation.stop() }) {
+                        Image(systemName: "stop.circle.fill")
+                            .font(.system(size: 24))
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Button(action: sendMessage) {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 24))
+                            .foregroundStyle(canSend ? .secondary : .quaternary)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canSend)
                 }
-                .buttonStyle(.plain)
-                .disabled(!canSend)
             }
             .padding(.top, 2)
         }
@@ -106,8 +109,12 @@ struct ComposerView: View {
                 .stroke(Color(nsColor: .separatorColor).opacity(0.6), lineWidth: 0.5)
         )
         .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers in
-            handleDrop(providers)
-            return true
+            let hasContent = providers.contains {
+                $0.hasItemConformingToTypeIdentifier("public.file-url")
+                || $0.canLoadObject(ofClass: NSImage.self)
+            }
+            if hasContent { handleDrop(providers) }
+            return hasContent
         }
     }
 
@@ -154,12 +161,23 @@ struct ComposerView: View {
 
     private func handleDrop(_ providers: [NSItemProvider]) {
         for provider in providers {
-            provider.loadItem(forTypeIdentifier: "public.file-url") { data, _ in
-                guard let data = data as? Data,
-                      let url = URL(dataRepresentation: data, relativeTo: nil)
-                else { return }
-                DispatchQueue.main.async {
-                    attachments.append(AttachmentItem(url: url))
+            // Try file URL first (e.g. dragging a file from Finder)
+            if provider.hasItemConformingToTypeIdentifier("public.file-url") {
+                provider.loadItem(forTypeIdentifier: "public.file-url") { data, _ in
+                    guard let data = data as? Data,
+                          let url = URL(dataRepresentation: data, relativeTo: nil)
+                    else { return }
+                    DispatchQueue.main.async {
+                        self.attachments.append(AttachmentItem(url: url))
+                    }
+                }
+            // Fall back to raw image data (e.g. dragging from browser/Preview)
+            } else if provider.canLoadObject(ofClass: NSImage.self) {
+                provider.loadObject(ofClass: NSImage.self) { object, _ in
+                    guard let image = object as? NSImage else { return }
+                    DispatchQueue.main.async {
+                        self.handleImagePaste(image)
+                    }
                 }
             }
         }
@@ -210,22 +228,27 @@ struct AttachmentBar: View {
     @ViewBuilder
     private func attachmentChip(_ item: AttachmentItem) -> some View {
         if item.isImage, let nsImage = NSImage(contentsOf: item.url) {
-            // Image attachment: thumbnail with remove button
+            // Image attachment: thumbnail with remove button, click to preview
             ZStack(alignment: .topTrailing) {
-                Image(nsImage: nsImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 56, height: 56)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                Button(action: { NSWorkspace.shared.open(item.url) }) {
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 56, height: 56)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
 
                 Button(action: { attachments.removeAll { $0.id == item.id } }) {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 14))
+                        .symbolRenderingMode(.palette)
                         .foregroundStyle(.white, .black.opacity(0.6))
                 }
                 .buttonStyle(.plain)
-                .offset(x: 4, y: -4)
             }
+            .padding(.top, 6)
+            .padding(.trailing, 6)
         } else {
             // Non-image attachment: icon + filename
             HStack(spacing: 4) {

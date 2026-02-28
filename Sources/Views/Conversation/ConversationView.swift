@@ -134,7 +134,7 @@ struct ConversationView: View {
                         scrollToBottom(proxy)
                     }
                 }
-                .onChange(of: lastBlockText) {
+                .onChange(of: lastBlockContentLength) {
                     if conversation.isStreaming {
                         scrollToBottom(proxy)
                     }
@@ -159,18 +159,25 @@ struct ConversationView: View {
 
     // MARK: - Helpers
 
-    /// Text length of the last block in the last message — triggers scroll on streaming content.
-    private var lastBlockText: Int {
+    /// Content length of the last block in the last message — triggers scroll on any streaming content.
+    private var lastBlockContentLength: Int {
         guard let lastMsg = conversation.messages.last,
               let lastBlock = lastMsg.blocks.last else { return 0 }
-        if case .text(let content) = lastBlock {
-            return content.text.count
+        switch lastBlock {
+        case .text(let c): return c.text.count
+        case .thinking(let c): return c.text.count
+        case .toolCall(let c): return c.inputJson.count + c.detail.count
+        case .code(let c): return c.code.count
+        case .error(let c): return c.message.count
+        default: return 0
         }
-        return 0
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
-        proxy.scrollTo("bottom", anchor: .bottom)
+        // Defer to next run loop so layout is finalized before scrolling
+        DispatchQueue.main.async {
+            proxy.scrollTo("bottom", anchor: .bottom)
+        }
     }
 
     private var contentMaxWidth: CGFloat {

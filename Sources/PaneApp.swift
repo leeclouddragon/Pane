@@ -20,6 +20,9 @@ struct PaneApp: App {
             AppShell()
                 .environment(paneState)
                 .environment(settings)
+                .onAppear {
+                    RemoteControlServer.shared.startIfPossible(paneState: paneState)
+                }
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 960, height: 700)
