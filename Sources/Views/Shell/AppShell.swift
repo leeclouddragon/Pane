@@ -1,25 +1,30 @@
 import SwiftUI
 
-/// Root view. Tab bar + pane tree (with composer + status bar inside each pane).
+/// Root view. System title bar + tab bar + pane tree.
 struct AppShell: View {
     @Environment(PaneState.self) private var paneState
     @Environment(AppSettings.self) private var settings
 
     var body: some View {
-        GeometryReader { geo in
-            let zoom = settings.zoomLevel
-            PaneContainer(node: paneState.root)
-                .frame(width: geo.size.width / zoom, height: geo.size.height / zoom)
-                .scaleEffect(zoom, anchor: .topLeading)
+        VStack(spacing: 0) {
+            PaneTabBar()
+            Divider()
+            GeometryReader { geo in
+                let zoom = settings.zoomLevel
+                PaneContainer(node: paneState.root)
+                    .frame(width: geo.size.width / zoom, height: geo.size.height / zoom)
+                    .scaleEffect(zoom, anchor: .topLeading)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                PaneTabBar()
-            }
-        }
+        .navigationTitle(windowTitle)
         .background(paneShortcuts)
+    }
+
+    private var windowTitle: String {
+        let title = paneState.activeConversation?.displayTitle ?? ""
+        return title.isEmpty ? "Pane" : title
     }
 
     /// Hidden buttons that register keyboard shortcuts.
@@ -62,7 +67,7 @@ struct AppShell: View {
 
 // MARK: - Terminal-style tab bar
 
-/// Tab bar shown in the toolbar: one tab per pane + a "+" button.
+/// Tab bar below the system title bar: one tab per pane + "+" button on the right.
 struct PaneTabBar: View {
     @Environment(PaneState.self) private var paneState
 
@@ -72,35 +77,44 @@ struct PaneTabBar: View {
                 tabItem(conv)
             }
 
-            // "+" button
+            Spacer()
+
+            // "+" button (right-aligned, like Terminal)
             Button(action: { paneState.newThread() }) {
                 Image(systemName: "plus")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.tertiary)
-                    .frame(width: 28, height: 22)
+                    .frame(width: 28, height: 28)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help("New Thread")
         }
+        .frame(height: 28)
+        .padding(.horizontal, 8)
+        .background(Color(nsColor: .windowBackgroundColor).opacity(0.8))
     }
 
     private func tabItem(_ conv: ConversationState) -> some View {
         let isActive = conv === paneState.focusedConversation
 
         return Button(action: { paneState.focusedConversation = conv }) {
-            Text(tabTitle(conv))
-                .font(.system(size: 11))
-                .foregroundStyle(isActive ? .primary : .secondary)
-                .lineLimit(1)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 4)
-                .background(
-                    isActive
-                        ? RoundedRectangle(cornerRadius: 4)
-                            .fill(.quaternary.opacity(0.5))
-                        : nil
-                )
+            HStack(spacing: 4) {
+                Text("—")
+                    .foregroundStyle(.quaternary)
+                Text(tabTitle(conv))
+                    .foregroundStyle(isActive ? .primary : .secondary)
+            }
+            .font(.system(size: 11))
+            .lineLimit(1)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 4)
+            .background(
+                isActive
+                    ? RoundedRectangle(cornerRadius: 5)
+                        .fill(.quaternary.opacity(0.5))
+                    : nil
+            )
         }
         .buttonStyle(.plain)
     }
