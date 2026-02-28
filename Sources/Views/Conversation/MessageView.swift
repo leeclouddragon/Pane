@@ -25,7 +25,7 @@ struct MessageView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(Color.white.opacity(0.08))
+        .background(Color.primary.opacity(0.06))
         .clipShape(RoundedRectangle(cornerRadius: 14))
         .frame(maxWidth: .infinity, alignment: .trailing)
     }

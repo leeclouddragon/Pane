@@ -7,6 +7,7 @@ struct InputTextView: NSViewRepresentable {
     @Binding var height: CGFloat
     var font: NSFont = .systemFont(ofSize: 14)
     var onCommit: () -> Void = {}
+    var onImagePaste: ((NSImage) -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -33,7 +34,7 @@ struct InputTextView: NSViewRepresentable {
         textView.isAutomaticTextReplacementEnabled = false
 
         // Cursor: light gray
-        textView.insertionPointColor = NSColor(white: 0.7, alpha: 1.0)
+        textView.insertionPointColor = NSColor.secondaryLabelColor
 
         // Left inset = 6 to align cursor with the + button below
         textView.textContainerInset = NSSize(width: 6, height: 2)
@@ -45,6 +46,7 @@ struct InputTextView: NSViewRepresentable {
         textView.textContainer?.widthTracksTextView = true
 
         textView.onCommit = onCommit
+        textView.onImagePaste = onImagePaste
         context.coordinator.textView = textView
 
         scrollView.documentView = textView
@@ -60,6 +62,7 @@ struct InputTextView: NSViewRepresentable {
         }
 
         textView.onCommit = onCommit
+        textView.onImagePaste = onImagePaste
 
         // Auto focus
         DispatchQueue.main.async {
@@ -102,6 +105,23 @@ struct InputTextView: NSViewRepresentable {
 /// Custom NSTextView: placeholder + Enter to send, Shift+Enter for newline.
 class PaneTextView: NSTextView {
     var onCommit: () -> Void = {}
+    var onImagePaste: ((NSImage) -> Void)?
+
+    override func paste(_ sender: Any?) {
+        let pb = NSPasteboard.general
+
+        // Explicitly check for image pasteboard types
+        let imageTypes: [NSPasteboard.PasteboardType] = [.tiff, .png]
+        if let bestType = pb.availableType(from: imageTypes),
+           let data = pb.data(forType: bestType),
+           let image = NSImage(data: data),
+           image.isValid {
+            onImagePaste?(image)
+            return
+        }
+
+        super.paste(sender)
+    }
 
     override func keyDown(with event: NSEvent) {
         // Enter (keyCode 36) without Shift → send

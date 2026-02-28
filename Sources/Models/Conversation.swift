@@ -89,8 +89,8 @@ final class ConversationState: Identifiable {
         return title
     }
 
-    func send(_ text: String) {
-        guard !text.isEmpty else { return }
+    func send(_ text: String, attachments: [URL] = []) {
+        guard !text.isEmpty || !attachments.isEmpty else { return }
 
         // Stop any in-flight process before starting a new one
         if processManager.isRunning {
@@ -100,6 +100,17 @@ final class ConversationState: Identifiable {
         // Bump generation so stale events from old process are discarded
         eventGeneration += 1
         let gen = eventGeneration
+
+        // Build prompt: user text + attachment references
+        var prompt = text
+        if !attachments.isEmpty {
+            let refs = attachments.map { $0.path }.joined(separator: "\n")
+            if prompt.isEmpty {
+                prompt = "Please look at the attached image(s):\n\(refs)"
+            } else {
+                prompt += "\n\n[attached: \(refs)]"
+            }
+        }
 
         // Add user message
         let userMsg = Message(role: .user, blocks: [.text(TextContent(text: text))])
@@ -118,7 +129,7 @@ final class ConversationState: Identifiable {
         }
 
         processManager.send(
-            prompt: text,
+            prompt: prompt,
             cwd: workingDirectory,
             executablePath: providerState?.executablePath
         )

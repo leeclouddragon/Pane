@@ -113,7 +113,7 @@ private struct ContextRing: View {
         ZStack {
             // Background track
             Circle()
-                .stroke(Color.gray.opacity(0.15), lineWidth: lineWidth)
+                .stroke(Color(nsColor: .separatorColor), lineWidth: lineWidth)
 
             // Filled arc
             Circle()
@@ -125,7 +125,7 @@ private struct ContextRing: View {
     }
 
     private var ringColor: Color {
-        .gray.opacity(0.6)
+        Color(nsColor: .secondaryLabelColor)
     }
 }
 

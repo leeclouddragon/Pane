@@ -16,7 +16,8 @@ struct ComposerView: View {
             InputTextView(
                 text: $conversation.draftText,
                 height: $textHeight,
-                onCommit: sendMessage
+                onCommit: sendMessage,
+                onImagePaste: handleImagePaste
             )
             .frame(height: textHeight)
 
@@ -89,7 +90,7 @@ struct ComposerView: View {
                 Button(action: sendMessage) {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.system(size: 24))
-                        .foregroundStyle(canSend ? Color.gray.opacity(0.8) : Color.gray.opacity(0.3))
+                        .foregroundStyle(canSend ? .secondary : .quaternary)
                 }
                 .buttonStyle(.plain)
                 .disabled(!canSend)
@@ -112,12 +113,15 @@ struct ComposerView: View {
 
     private var canSend: Bool {
         !conversation.draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        || !attachments.isEmpty
     }
 
     private func sendMessage() {
         let text = conversation.draftText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        conversation.send(text)
+        guard !text.isEmpty || !attachments.isEmpty else { return }
+        let urls = attachments.map(\.url)
+        conversation.send(text, attachments: urls)
+        attachments.removeAll()
     }
 
     private func pickFolder() {
@@ -160,6 +164,23 @@ struct ComposerView: View {
             }
         }
     }
+
+    private func handleImagePaste(_ image: NSImage) {
+        guard let tiffData = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let pngData = bitmap.representation(using: .png, properties: [:])
+        else { return }
+
+        let filename = "pane_paste_\(UUID().uuidString.prefix(8)).png"
+        let tmpURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(filename)
+
+        do {
+            try pngData.write(to: tmpURL)
+            attachments.append(AttachmentItem(url: tmpURL))
+        } catch {
+            // Silently ignore write failures
+        }
+    }
 }
 
 // MARK: - Attachments
@@ -180,24 +201,49 @@ struct AttachmentBar: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
                 ForEach(attachments) { item in
-                    HStack(spacing: 4) {
-                        Image(systemName: item.isImage ? "photo" : "doc")
-                            .font(.system(size: 10))
-                        Text(item.name)
-                            .font(.system(size: 11))
-                            .lineLimit(1)
-                        Button(action: { attachments.removeAll { $0.id == item.id } }) {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 8, weight: .bold))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(.quaternary.opacity(0.6))
-                    .clipShape(RoundedRectangle(cornerRadius: 5))
+                    attachmentChip(item)
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func attachmentChip(_ item: AttachmentItem) -> some View {
+        if item.isImage, let nsImage = NSImage(contentsOf: item.url) {
+            // Image attachment: thumbnail with remove button
+            ZStack(alignment: .topTrailing) {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 56, height: 56)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                Button(action: { attachments.removeAll { $0.id == item.id } }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.white, .black.opacity(0.6))
+                }
+                .buttonStyle(.plain)
+                .offset(x: 4, y: -4)
+            }
+        } else {
+            // Non-image attachment: icon + filename
+            HStack(spacing: 4) {
+                Image(systemName: "doc")
+                    .font(.system(size: 10))
+                Text(item.name)
+                    .font(.system(size: 11))
+                    .lineLimit(1)
+                Button(action: { attachments.removeAll { $0.id == item.id } }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8, weight: .bold))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.quaternary.opacity(0.6))
+            .clipShape(RoundedRectangle(cornerRadius: 5))
         }
     }
 }
