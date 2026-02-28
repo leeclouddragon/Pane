@@ -127,12 +127,14 @@ struct SessionHistory {
         let outputTokens: Int
         let cacheReadTokens: Int
         let cacheCreationTokens: Int
+        let costUSD: Double
+        let contextPercent: Double
     }
 
     static func loadMessages(from filePath: String) -> LoadResult {
         guard let data = FileManager.default.contents(atPath: filePath),
               let text = String(data: data, encoding: .utf8)
-        else { return LoadResult(messages: [], model: "", inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0) }
+        else { return LoadResult(messages: [], model: "", inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUSD: 0, contextPercent: 0) }
 
         var messages: [Message] = []
         var model = ""
@@ -140,6 +142,8 @@ struct SessionHistory {
         var totalOutput = 0
         var totalCacheRead = 0
         var totalCacheCreation = 0
+        var costUSD: Double = 0
+        var contextPercent: Double = 0
         // Tracks whether a tool_result was seen since last assistant block.
         // When true, next assistant line starts a new Message (new turn).
         var turnBoundary = false
@@ -208,6 +212,16 @@ struct SessionHistory {
                         turnBoundary = false
                     }
                 }
+
+            } else if type == "result" {
+                // Extract cost and context from the last result entry
+                if let cost = json["total_cost_usd"] as? Double {
+                    costUSD = cost
+                }
+                if let cw = json["context_window"] as? [String: Any],
+                   let pct = cw["used_percentage"] as? Int {
+                    contextPercent = Double(pct) / 100.0
+                }
             }
         }
 
@@ -217,7 +231,9 @@ struct SessionHistory {
             inputTokens: totalInput,
             outputTokens: totalOutput,
             cacheReadTokens: totalCacheRead,
-            cacheCreationTokens: totalCacheCreation
+            cacheCreationTokens: totalCacheCreation,
+            costUSD: costUSD,
+            contextPercent: contextPercent
         )
     }
 

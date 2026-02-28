@@ -33,7 +33,11 @@ struct ConversationView: View {
                 selectedIndex: conversation.slashSelectedIndex,
                 onSelect: { cmd in
                     conversation.draftText = ""
-                    conversation.send(cmd.command)
+                    if cmd.type == .local, let action = cmd.localAction {
+                        conversation.executeLocal(action)
+                    } else {
+                        conversation.send(cmd.command)
+                    }
                 }
             )
             .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -122,6 +126,7 @@ struct ConversationView: View {
 
             Spacer()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .textBackgroundColor))
         .onAppear {
             guard !sessionsLoaded else { return }
@@ -242,7 +247,8 @@ struct ConversationView: View {
                 conversation.inputTokens = result.inputTokens
                 conversation.outputTokens = result.outputTokens
                 conversation.cachedTokens = result.cacheReadTokens + result.cacheCreationTokens
-                conversation.totalTokens = result.inputTokens + result.outputTokens + result.cacheReadTokens + result.cacheCreationTokens
+                conversation.totalCostUSD = result.costUSD
+                conversation.contextPercent = result.contextPercent
                 if !result.model.isEmpty {
                     conversation.currentModel = result.model
                 }

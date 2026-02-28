@@ -57,6 +57,9 @@ struct MessageView: View {
             ForEach(message.blocks) { block in
                 ContentBlockView(block: block)
             }
+            if let duration = message.durationSeconds {
+                CompletionIndicator(seconds: duration)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -138,6 +141,36 @@ struct StreamingIndicator: View {
         "Dilly-dallying", "Dreaming up", "Brainstorming", "Percolating",
         "Woolgathering", "Chewing on it", "Marinating", "Infusing",
         "Daydreaming", "Manifesting", "Conjuring", "Simmering",
+    ]
+}
+
+// MARK: - Completion indicator
+
+struct CompletionIndicator: View {
+    let seconds: Int
+
+    // Verb picked once per indicator instance
+    @State private var verb = verbs.randomElement()!
+
+    var body: some View {
+        Text("\u{2736} \(verb) for \(formatDuration(seconds))")
+            .font(.system(size: 11))
+            .foregroundStyle(.quaternary)
+            .padding(.top, 2)
+    }
+
+    private func formatDuration(_ s: Int) -> String {
+        if s < 60 { return "\(s)s" }
+        let m = s / 60
+        let remainder = s % 60
+        if remainder == 0 { return "\(m)m" }
+        return "\(m)m \(remainder)s"
+    }
+
+    private static let verbs = [
+        "Baked", "Crunched", "Brewed", "Simmered",
+        "Whipped up", "Churned", "Distilled", "Forged",
+        "Crafted", "Cooked up", "Conjured", "Percolated",
     ]
 }
 

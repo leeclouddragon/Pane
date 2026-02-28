@@ -10,6 +10,8 @@ struct Message: Identifiable {
     let role: MessageRole
     var blocks: [ContentBlock]
     let timestamp: Date
+    /// Elapsed seconds for this assistant response (nil while streaming or for user messages).
+    var durationSeconds: Int?
 
     init(role: MessageRole, blocks: [ContentBlock] = []) {
         self.id = UUID()

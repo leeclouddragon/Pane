@@ -17,9 +17,9 @@ enum InteractionMode: CaseIterable {
 
     var statusIcon: String {
         switch self {
-        case .normal: return "⏵"
-        case .acceptEdits: return "⏵⏵"
-        case .plan: return "⏸"
+        case .normal: return ">"
+        case .acceptEdits: return ">>"
+        case .plan: return "||"
         }
     }
 
@@ -59,9 +59,7 @@ final class ConversationState: Identifiable {
     var inputTokens: Int
     var outputTokens: Int
     var cachedTokens: Int
-    var totalTokens: Int
     var contextPercent: Double
-    var contextWindowSize: Int
     var gitBranch: String
     let sessionStart: Date
     var interactionMode: InteractionMode = .normal
@@ -84,7 +82,7 @@ final class ConversationState: Identifiable {
            let match = ps.providers.first(where: { $0.id == activeProviderID }) {
             return match.scriptPath
         }
-        return executablePath ?? ClaudeProcessManager.findClaudeBinary()
+        return providerState?.executablePath ?? ClaudeProcessManager.findClaudeBinary()
     }
 
     let processManager = ClaudeProcessManager()
@@ -119,9 +117,7 @@ final class ConversationState: Identifiable {
         self.inputTokens = 0
         self.outputTokens = 0
         self.cachedTokens = 0
-        self.totalTokens = 0
         self.contextPercent = 0
-        self.contextWindowSize = 200_000
         self.gitBranch = ""
         self.sessionStart = Date()
         refreshGitBranch()
@@ -201,6 +197,15 @@ final class ConversationState: Identifiable {
         // Add user message to chat and start request
         appendUserMessage(text: text, attachments: attachments)
         startRequest(prompt: prompt)
+    }
+
+    /// Execute a local slash command (handled by Pane, not sent to CLI).
+    func executeLocal(_ action: LocalAction) {
+        switch action {
+        case .clear:
+            messages.removeAll()
+            targetAssistantIndex = -1
+        }
     }
 
     func removePending(at index: Int) {
@@ -363,20 +368,16 @@ final class ConversationState: Identifiable {
             completeOpenThinkingBlocks(at: idx)
             isStreaming = false
             isCompacting = false
+            // Record response duration on the assistant message
+            if info.durationMs > 0 {
+                messages[idx].durationSeconds = max(info.durationMs / 1000, 1)
+            }
             totalCostUSD = info.costUSD
-            inputTokens = info.inputTokens
-            outputTokens = info.outputTokens
-            cachedTokens = info.cacheReadTokens + info.cacheCreationTokens
-            // Total context input = new tokens + cached tokens (all count toward context window)
-            totalTokens = info.inputTokens + info.cacheReadTokens + info.cacheCreationTokens
-            // Use CLI-provided context percentage if available; otherwise estimate
+            inputTokens += info.inputTokens
+            outputTokens += info.outputTokens
+            cachedTokens += info.cacheReadTokens + info.cacheCreationTokens
             if let pct = info.contextUsedPercent {
                 contextPercent = Double(pct) / 100.0
-            } else {
-                contextPercent = min(Double(totalTokens) / Double(contextWindowSize), 1.0)
-            }
-            if let size = info.contextWindowSize {
-                contextWindowSize = size
             }
             if info.isError {
                 messages[idx].blocks.append(

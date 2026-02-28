@@ -37,10 +37,13 @@ struct PaneContainer: View {
 }
 
 /// Resizable split between two panes.
+/// Uses deferred resize: during drag only a ghost divider moves; pane content
+/// stays frozen. Layout commits once on drag end → zero flickering.
 struct PaneSplit<First: View, Second: View>: View {
     let direction: Axis
     @State private var ratio: CGFloat
-    @State private var isDragging = false
+    /// Non-nil while dragging — the ratio the user is dragging toward.
+    @State private var pendingRatio: CGFloat?
     let first: First
     let second: Second
 
@@ -65,20 +68,52 @@ struct PaneSplit<First: View, Second: View>: View {
                 HStack(spacing: 0) {
                     first
                         .frame(width: firstSize)
-                        .transaction { $0.animation = isDragging ? nil : $0.animation }
-                    PaneDivider(direction: direction, ratio: $ratio, totalSize: totalSize, isDragging: $isDragging)
+                        .clipped()
+                    PaneDivider(
+                        direction: direction,
+                        ratio: ratio,
+                        totalSize: totalSize,
+                        onDragChanged: { pendingRatio = $0 },
+                        onDragEnded: { ratio = $0; pendingRatio = nil }
+                    )
                     second
-                        .transaction { $0.animation = isDragging ? nil : $0.animation }
+                        .clipped()
                 }
+                .overlay { ghostLine(totalSize: totalSize, crossSize: geo.size.height) }
             } else {
                 VStack(spacing: 0) {
                     first
                         .frame(height: firstSize)
-                        .transaction { $0.animation = isDragging ? nil : $0.animation }
-                    PaneDivider(direction: direction, ratio: $ratio, totalSize: totalSize, isDragging: $isDragging)
+                        .clipped()
+                    PaneDivider(
+                        direction: direction,
+                        ratio: ratio,
+                        totalSize: totalSize,
+                        onDragChanged: { pendingRatio = $0 },
+                        onDragEnded: { ratio = $0; pendingRatio = nil }
+                    )
                     second
-                        .transaction { $0.animation = isDragging ? nil : $0.animation }
+                        .clipped()
                 }
+                .overlay { ghostLine(totalSize: totalSize, crossSize: geo.size.width) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func ghostLine(totalSize: CGFloat, crossSize: CGFloat) -> some View {
+        if let pendingRatio {
+            let pos = round(totalSize * pendingRatio)
+            if direction == .horizontal {
+                Rectangle()
+                    .fill(Color.accentColor.opacity(0.45))
+                    .frame(width: 2)
+                    .position(x: pos, y: crossSize / 2)
+            } else {
+                Rectangle()
+                    .fill(Color.accentColor.opacity(0.45))
+                    .frame(height: 2)
+                    .position(x: crossSize / 2, y: pos)
             }
         }
     }
@@ -87,9 +122,10 @@ struct PaneSplit<First: View, Second: View>: View {
 /// Draggable divider between panes.
 struct PaneDivider: View {
     let direction: Axis
-    @Binding var ratio: CGFloat
+    let ratio: CGFloat
     let totalSize: CGFloat
-    @Binding var isDragging: Bool
+    let onDragChanged: (CGFloat) -> Void
+    let onDragEnded: (CGFloat) -> Void
     @State private var dragStartRatio: CGFloat?
 
     var body: some View {
@@ -103,17 +139,18 @@ struct PaneDivider: View {
             .gesture(
                 DragGesture(minimumDistance: 1)
                     .onChanged { value in
-                        if dragStartRatio == nil {
-                            dragStartRatio = ratio
-                            isDragging = true
-                        }
-                        let offset = direction == .horizontal ? value.translation.width : value.translation.height
-                        let newRatio = (dragStartRatio ?? ratio) + offset / totalSize
-                        ratio = min(max(newRatio, 0.15), 0.85)
+                        if dragStartRatio == nil { dragStartRatio = ratio }
+                        let offset = direction == .horizontal
+                            ? value.translation.width : value.translation.height
+                        let newRatio = min(max((dragStartRatio ?? ratio) + offset / totalSize, 0.15), 0.85)
+                        onDragChanged(newRatio)
                     }
-                    .onEnded { _ in
+                    .onEnded { value in
+                        let offset = direction == .horizontal
+                            ? value.translation.width : value.translation.height
+                        let newRatio = min(max((dragStartRatio ?? ratio) + offset / totalSize, 0.15), 0.85)
                         dragStartRatio = nil
-                        isDragging = false
+                        onDragEnded(newRatio)
                     }
             )
             .onHover { hovering in

@@ -1,66 +1,96 @@
 import SwiftUI
 
-/// Single-line status bar: left info segments, right context ring + cost.
+/// Two-line status bar modeled after Claude Code's statusline.
+/// Line 1: model | cwd | git | mode            session  $cost  ring
+/// Line 2: Ctx | Total | In | Out | Cache
 struct StatusBarView: View {
     let conversation: ConversationState
 
     var body: some View {
-        HStack(spacing: 0) {
-            // Left-aligned: model | cwd | git | status
-            StatusSegment {
-                Text(modelDisplay)
-            }
-
-            Pipe()
-
-            StatusSegment {
-                HStack(spacing: 3) {
-                    Image(systemName: "folder")
-                        .font(.system(size: 8))
-                    Text(compactPath(conversation.workingDirectory))
-                        .lineLimit(1)
-                        .help(shortPath(conversation.workingDirectory))
+        VStack(spacing: 0) {
+            // Line 1: info + cost
+            HStack(spacing: 0) {
+                StatusSegment {
+                    Text(modelDisplay)
                 }
-            }
 
-            Pipe()
+                Pipe()
 
-            StatusSegment {
-                HStack(spacing: 3) {
-                    Image(systemName: conversation.gitBranch.isEmpty ? "xmark.circle" : "arrow.triangle.branch")
-                        .font(.system(size: 8))
-                    Text(conversation.gitBranch.isEmpty ? "no git" : conversation.gitBranch)
+                StatusSegment {
+                    HStack(spacing: 3) {
+                        Image(systemName: "folder")
+                            .font(.system(size: 8))
+                        Text(compactPath(conversation.workingDirectory))
+                            .lineLimit(1)
+                            .help(shortPath(conversation.workingDirectory))
+                    }
                 }
-            }
 
-            Pipe()
+                Pipe()
 
-            StatusSegment {
-                HStack(spacing: 3) {
-                    Circle()
-                        .fill(conversation.interactionMode.color)
-                        .frame(width: 5, height: 5)
-                    Text("\(conversation.interactionMode.statusIcon) \(conversation.interactionMode.label)")
+                StatusSegment {
+                    HStack(spacing: 3) {
+                        Image(systemName: conversation.gitBranch.isEmpty ? "xmark.circle" : "arrow.triangle.branch")
+                            .font(.system(size: 8))
+                        Text(conversation.gitBranch.isEmpty ? "no git" : conversation.gitBranch)
+                    }
                 }
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    conversation.cycleMode()
+
+                Pipe()
+
+                StatusSegment {
+                    HStack(spacing: 3) {
+                        Circle()
+                            .fill(conversation.interactionMode.color)
+                            .frame(width: 5, height: 5)
+                        Text("\(conversation.interactionMode.statusIcon) \(conversation.interactionMode.label)")
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        conversation.cycleMode()
+                    }
                 }
+
+                Spacer()
+
+                StatusSegment {
+                    SessionDuration(since: conversation.sessionStart)
+                }
+
+                StatusSegment {
+                    Text(String(format: "$%.2f", conversation.totalCostUSD))
+                }
+
+                ContextRing(percent: conversation.contextPercent)
+                    .padding(.horizontal, 6)
             }
 
-            Spacer()
-
-            // Right-aligned: cost | context ring
-            StatusSegment {
-                Text(String(format: "$%.2f", conversation.totalCostUSD))
+            // Line 2: token breakdown (only when there's data)
+            if hasTokenData {
+                HStack(spacing: 0) {
+                    StatusSegment {
+                        Text("Ctx: \(Int(conversation.contextPercent * 100))%")
+                    }
+                    Pipe()
+                    StatusSegment {
+                        Text("Total: \(smartTokens(totalAllTokens))")
+                    }
+                    Pipe()
+                    StatusSegment {
+                        Text("In: \(smartTokens(conversation.inputTokens))")
+                    }
+                    Pipe()
+                    StatusSegment {
+                        Text("Out: \(smartTokens(conversation.outputTokens))")
+                    }
+                    Pipe()
+                    StatusSegment {
+                        Text("Cache: \(smartTokens(conversation.cachedTokens))")
+                    }
+                    Spacer()
+                }
+                .foregroundStyle(.quaternary)
             }
-
-            ContextRing(
-                percent: conversation.contextPercent,
-                usedTokens: conversation.totalTokens,
-                maxTokens: conversation.contextWindowSize
-            )
-            .padding(.horizontal, 6)
         }
         .font(.system(size: 10, design: .monospaced))
         .foregroundStyle(.tertiary)
@@ -76,7 +106,26 @@ struct StatusBarView: View {
         return shortModel(m)
     }
 
+    private var hasTokenData: Bool {
+        conversation.inputTokens > 0 || conversation.outputTokens > 0
+    }
+
+    private var totalAllTokens: Int {
+        conversation.inputTokens + conversation.outputTokens + conversation.cachedTokens
+    }
+
     // MARK: - Formatting
+
+    /// Format token counts with automatic unit selection.
+    private func smartTokens(_ count: Int) -> String {
+        if count < 1_000 { return "\(count)" }
+        if count < 1_000_000 {
+            let k = Double(count) / 1_000
+            return k >= 100 ? String(format: "%.0fk", k) : String(format: "%.1fk", k)
+        }
+        let m = Double(count) / 1_000_000
+        return m >= 100 ? String(format: "%.0fM", m) : String(format: "%.1fM", m)
+    }
 
     private func shortModel(_ model: String) -> String {
         // "global.anthropic.claude-opus-4-6-v1" → "Opus 4.6"
@@ -102,9 +151,6 @@ struct StatusBarView: View {
         return path
     }
 
-    /// Compact path for status bar display.
-    /// When path is short, show as-is. When long, abbreviate middle directories to first letter,
-    /// keep first and last 2 components full. Long individual names get middle-truncated.
     private func compactPath(_ path: String, maxLength: Int = 45) -> String {
         let display = shortPath(path)
         guard display.count > maxLength else { return display }
@@ -112,12 +158,10 @@ struct StatusBarView: View {
         let parts = display.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
         guard parts.count > 3 else { return display }
 
-        let head = [parts[0]]                       // ~ or root
-        let tail = Array(parts.suffix(2))            // last 2 components
+        let head = [parts[0]]
+        let tail = Array(parts.suffix(2))
         let middle = Array(parts.dropFirst().dropLast(2))
 
-        // Abbreviate middle directories to first character;
-        // for long names (e.g. DerivedData hash), show first char + … + last char
         let abbreviated = middle.map { comp -> String in
             if comp.count <= 1 { return comp }
             if comp.count > 12 {
@@ -130,16 +174,34 @@ struct StatusBarView: View {
     }
 }
 
+// MARK: - Session Duration
+
+/// Displays elapsed time since session start, updating every 60s.
+private struct SessionDuration: View {
+    let since: Date
+
+    var body: some View {
+        TimelineView(.periodic(from: since, by: 60)) { context in
+            Text(formatDuration(from: since, to: context.date))
+        }
+    }
+
+    private func formatDuration(from start: Date, to now: Date) -> String {
+        let interval = Int(now.timeIntervalSince(start))
+        let minutes = interval / 60
+        let hours = minutes / 60
+        let days = hours / 24
+
+        if days > 0 { return "\(days)d \(hours % 24)h" }
+        if hours > 0 { return "\(hours)h \(minutes % 60)m" }
+        return "\(max(minutes, 1))m"
+    }
+}
+
 // MARK: - Context Ring
 
-/// Thin circular progress indicator showing context window usage.
-/// Hover to see detailed token usage in a popover.
 private struct ContextRing: View {
     let percent: Double
-    let usedTokens: Int
-    let maxTokens: Int
-
-    @State private var isHovered = false
 
     private let size: CGFloat = 12
     private let lineWidth: CGFloat = 1.5
@@ -155,39 +217,12 @@ private struct ContextRing: View {
                 .rotationEffect(.degrees(-90))
         }
         .frame(width: size, height: size)
-        .onHover { isHovered = $0 }
-        .popover(isPresented: $isHovered, arrowEdge: .top) {
-            contextPopover
-        }
     }
 
     private var ringColor: Color {
         if percent > 0.85 { return .red }
         if percent > 0.65 { return .orange }
         return Color(nsColor: .secondaryLabelColor)
-    }
-
-    private var contextPopover: some View {
-        let pct = Int(percent * 100)
-        let left = 100 - pct
-        let usedK = String(format: "%.0f", Double(usedTokens) / 1000)
-        let maxK = String(format: "%.0f", Double(maxTokens) / 1000)
-
-        return VStack(alignment: .center, spacing: 4) {
-            Text("Context window:")
-                .foregroundStyle(.secondary)
-            Text("\(pct)% used (\(left)% left)")
-                .fontWeight(.medium)
-            Text("\(usedK)k / \(maxK)k tokens used")
-                .foregroundStyle(.secondary)
-
-            Divider().padding(.vertical, 2)
-
-            Text("Auto-compacts when full")
-                .foregroundStyle(.tertiary)
-        }
-        .font(.system(size: 11))
-        .padding(10)
     }
 }
 

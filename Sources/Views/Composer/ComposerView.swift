@@ -169,7 +169,11 @@ struct ComposerView: View {
 
     private func executeSlashCommand(_ command: SlashCommand) {
         conversation.draftText = ""
-        conversation.send(command.command)
+        if command.type == .local, let action = command.localAction {
+            conversation.executeLocal(action)
+        } else {
+            conversation.send(command.command)
+        }
     }
 
     private func sendMessage() {
