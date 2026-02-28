@@ -6,8 +6,13 @@ import SwiftUI
 struct ConversationView: View {
     @Bindable var conversation: ConversationState
     @Environment(AppSettings.self) private var settings
+    @Environment(PaneState.self) private var paneState
     @State private var recentSessions: [SessionEntry] = []
     @State private var sessionsLoaded = false
+
+    private var isFocusedPane: Bool {
+        paneState.activeConversation === conversation
+    }
 
     var body: some View {
         if conversation.messages.isEmpty {
@@ -26,53 +31,49 @@ struct ConversationView: View {
             VStack(spacing: 24) {
                 // Logo
                 VStack(spacing: 8) {
-                    ZStack {
-                        Circle()
-                            .fill(.quaternary.opacity(0.4))
-                            .frame(width: 56, height: 56)
-                        Image(systemName: "terminal")
-                            .font(.system(size: 22, weight: .light))
-                            .foregroundStyle(.secondary)
-                    }
+                    ComposeIconView(size: 36)
+                        .foregroundStyle(.secondary)
 
                     Text("Pane")
-                        .font(.system(size: 18, weight: .semibold))
+                        .font(.system(size: 16, weight: .semibold))
                 }
 
                 // Composer
-                ComposerView(conversation: conversation, isWelcome: true)
+                ComposerView(conversation: conversation, isWelcome: true, isFocused: isFocusedPane)
 
                 // Recent sessions
                 if !recentSessions.isEmpty {
                     VStack(alignment: .leading, spacing: 0) {
-                        Text("Recent")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.tertiary)
-                            .padding(.horizontal, 6)
-                            .padding(.bottom, 6)
+                        HStack(spacing: 4) {
+                            ClockIconView(size: 12)
+                            Text("Recent")
+                                .font(.system(size: 10, weight: .medium))
+                        }
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 6)
+                        .padding(.bottom, 6)
 
                         ForEach(recentSessions) { session in
                             Button(action: { resumeSession(session) }) {
                                 HStack(spacing: 8) {
-                                    Image(systemName: "text.bubble")
-                                        .font(.system(size: 11))
+                                    ComposeIconView(size: 12)
                                         .foregroundStyle(.tertiary)
                                         .frame(width: 16)
 
                                     Text(session.firstMessage)
-                                        .font(.system(size: 13))
+                                        .font(.system(size: 12))
                                         .foregroundStyle(.secondary)
                                         .lineLimit(1)
 
                                     Spacer()
 
                                     Text(shortPath(session.cwd))
-                                        .font(.system(size: 11, design: .monospaced))
+                                        .font(.system(size: 10, design: .monospaced))
                                         .foregroundStyle(.quaternary)
                                         .lineLimit(1)
 
                                     Text(relativeDate(session.modifiedDate))
-                                        .font(.system(size: 11, design: .monospaced))
+                                        .font(.system(size: 10, design: .monospaced))
                                         .foregroundStyle(.quaternary)
                                 }
                                 .padding(.horizontal, 10)
@@ -113,16 +114,19 @@ struct ConversationView: View {
                             MessageView(message: message)
                                 .id(message.id)
                         }
-                        // Invisible anchor at the very bottom
+                        if conversation.isCompacting {
+                            CompactingIndicator()
+                                .padding(.vertical, 6)
+                        }
+                        // Invisible anchor at the very bottom (includes bottom padding)
                         Color.clear
-                            .frame(height: 1)
+                            .frame(height: 24)
                             .id("bottom")
                     }
                     .frame(maxWidth: contentMaxWidth, alignment: .center)
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, 24)
                     .padding(.top, 16)
-                    .padding(.bottom, 24)
                 }
                 .scrollContentBackground(.hidden)
                 .defaultScrollAnchor(.bottom)
@@ -139,13 +143,16 @@ struct ConversationView: View {
                         scrollToBottom(proxy)
                     }
                 }
+                .onChange(of: conversation.isCompacting) {
+                    scrollToBottom(proxy)
+                }
                 .onAppear {
                     scrollToBottom(proxy)
                 }
             }
 
             VStack(spacing: 6) {
-                ComposerView(conversation: conversation)
+                ComposerView(conversation: conversation, isFocused: isFocusedPane)
 
                 StatusBarView(conversation: conversation)
             }

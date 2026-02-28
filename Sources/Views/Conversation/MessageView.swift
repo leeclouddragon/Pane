@@ -77,7 +77,7 @@ struct StreamingIndicator: View {
         HStack(spacing: 7) {
             // Six-pointed star with gentle pulse + spin
             Text("\u{2736}")
-                .font(.system(size: 13, weight: .bold))
+                .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(color)
                 .scaleEffect(starScale)
                 .rotationEffect(.degrees(starRotation))
@@ -103,11 +103,11 @@ struct StreamingIndicator: View {
         let label = "\(verb)..."
         return ZStack(alignment: .leading) {
             Text(label)
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(color.opacity(0.35))
 
             Text(label)
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(color)
                 .mask(
                     GeometryReader { geo in
@@ -139,6 +139,32 @@ struct StreamingIndicator: View {
         "Woolgathering", "Chewing on it", "Marinating", "Infusing",
         "Daydreaming", "Manifesting", "Conjuring", "Simmering",
     ]
+}
+
+// MARK: - Compacting indicator
+
+struct CompactingIndicator: View {
+    @State private var rotation: Double = 0
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .rotationEffect(.degrees(rotation))
+
+            Text("Compacting context...")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onAppear {
+            withAnimation(.linear(duration: 2).repeatForever(autoreverses: false)) {
+                rotation = 360
+            }
+        }
+    }
 }
 
 // MARK: - Conditional modifier

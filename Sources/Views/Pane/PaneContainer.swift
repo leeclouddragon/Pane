@@ -26,10 +26,14 @@ struct PaneContainer: View {
 
     @ViewBuilder
     private func dimOverlay(for state: ConversationState) -> some View {
-        // Dim unfocused panes when there are multiple
+        // Dim unfocused panes when there are multiple.
+        // Clicking the overlay focuses the pane and dismisses it.
         if paneState.allConversations.count > 1 && paneState.activeConversation !== state {
             Color.black.opacity(0.25)
-                .allowsHitTesting(false)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    paneState.focusedConversation = state
+                }
         }
     }
 }

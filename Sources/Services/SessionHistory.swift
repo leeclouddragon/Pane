@@ -85,7 +85,7 @@ struct SessionHistory {
             else { continue }
 
             let type = json["type"] as? String ?? ""
-            if type == "user" {
+            if type == "user", json["isCompactSummary"] as? Bool != true {
                 cwd = json["cwd"] as? String ?? ""
 
                 if let message = json["message"] as? [String: Any] {
@@ -151,6 +151,11 @@ struct SessionHistory {
             else { continue }
 
             let type = json["type"] as? String ?? ""
+
+            // Skip compact summary and boundary entries
+            if json["isCompactSummary"] as? Bool == true { continue }
+            let subtype = json["subtype"] as? String ?? ""
+            if subtype == "compact_boundary" || subtype == "microcompact_boundary" { continue }
 
             if type == "user" {
                 if let message = json["message"] as? [String: Any],
@@ -246,7 +251,39 @@ struct SessionHistory {
         }
 
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        return Message(role: .user, blocks: [.text(TextContent(text: text))])
+
+        // Extract image paths from [attached: path1\npath2] pattern
+        var contentBlocks: [ContentBlock] = []
+        var displayText = text
+        if let range = text.range(of: #"\n*\[attached: [^\]]+\]"#, options: .regularExpression) {
+            let match = String(text[range])
+            let pathsStr = match
+                .replacingOccurrences(of: "[attached: ", with: "")
+                .replacingOccurrences(of: "]", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let paths = pathsStr.components(separatedBy: "\n").filter { !$0.isEmpty }
+
+            var imageBlocks: [ContentBlock] = []
+            for path in paths {
+                let url = URL(fileURLWithPath: path)
+                if FileManager.default.fileExists(atPath: path) {
+                    imageBlocks.append(.image(ImageContent(url: url)))
+                }
+            }
+
+            if !imageBlocks.isEmpty {
+                contentBlocks.append(contentsOf: imageBlocks)
+                displayText = String(text[..<range.lowerBound])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+
+        if !displayText.isEmpty {
+            contentBlocks.append(.text(TextContent(text: displayText)))
+        }
+
+        guard !contentBlocks.isEmpty else { return nil }
+        return Message(role: .user, blocks: contentBlocks)
     }
 
     private static func parseAssistantMessage(_ json: [String: Any]) -> Message? {

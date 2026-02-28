@@ -6,6 +6,7 @@ final class ConversationState: Identifiable {
     var title: String
     var messages: [Message]
     var isStreaming: Bool
+    var isCompacting: Bool
     var workingDirectory: String
     var draftText: String
     var totalCostUSD: Double
@@ -38,6 +39,7 @@ final class ConversationState: Identifiable {
         self.title = title
         self.messages = []
         self.isStreaming = false
+        self.isCompacting = false
         self.workingDirectory = workingDirectory
         self.draftText = ""
         self.totalCostUSD = 0
@@ -178,7 +180,9 @@ final class ConversationState: Identifiable {
         switch event {
         case .systemInit(let info):
             currentModel = info.model
-            workingDirectory = info.cwd
+            if !info.cwd.isEmpty {
+                workingDirectory = info.cwd
+            }
             refreshGitBranch()
 
         case .textDelta(let text):
@@ -246,6 +250,7 @@ final class ConversationState: Identifiable {
 
             completeOpenThinkingBlocks(at: idx)
             isStreaming = false
+            isCompacting = false
             totalCostUSD = info.costUSD
             inputTokens = info.inputTokens
             outputTokens = info.outputTokens
@@ -298,6 +303,12 @@ final class ConversationState: Identifiable {
                     }
                 }
             }
+
+        case .compacting:
+            isCompacting = true
+
+        case .compactDone:
+            isCompacting = false
 
         case .unknown:
             break

@@ -6,6 +6,7 @@ import AppKit
 struct ComposerView: View {
     @Bindable var conversation: ConversationState
     var isWelcome: Bool = false
+    var isFocused: Bool = true
 
     @State private var attachments: [AttachmentItem] = []
     @State private var textHeight: CGFloat = 22
@@ -22,6 +23,7 @@ struct ComposerView: View {
             InputTextView(
                 text: $conversation.draftText,
                 height: $textHeight,
+                isFocused: isFocused,
                 onCommit: sendMessage,
                 onImagePaste: handleImagePaste
             )
@@ -31,7 +33,7 @@ struct ComposerView: View {
             HStack(spacing: 6) {
                 Button(action: { /* TODO: attachment picker */ }) {
                     Image(systemName: "plus")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.secondary)
                         .frame(width: 26, height: 26)
                         .contentShape(Rectangle())
@@ -46,7 +48,7 @@ struct ComposerView: View {
                             Image(systemName: "folder")
                                 .font(.system(size: 10))
                             Text(shortPath(conversation.workingDirectory))
-                                .font(.system(size: 11, design: .monospaced))
+                                .font(.system(size: 10, design: .monospaced))
                                 .lineLimit(1)
                         }
                         .padding(.horizontal, 8)
@@ -68,7 +70,7 @@ struct ComposerView: View {
                         }
                     } label: {
                         Text(ps.activeProviderID)
-                            .font(.system(size: 11, design: .monospaced))
+                            .font(.system(size: 10, design: .monospaced))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
                         .background(.quaternary.opacity(0.4))
@@ -241,7 +243,7 @@ struct AttachmentBar: View {
 
                 Button(action: { attachments.removeAll { $0.id == item.id } }) {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 14))
+                        .font(.system(size: 12))
                         .symbolRenderingMode(.palette)
                         .foregroundStyle(.white, .black.opacity(0.6))
                 }
@@ -255,7 +257,7 @@ struct AttachmentBar: View {
                 Image(systemName: "doc")
                     .font(.system(size: 10))
                 Text(item.name)
-                    .font(.system(size: 11))
+                    .font(.system(size: 10))
                     .lineLimit(1)
                 Button(action: { attachments.removeAll { $0.id == item.id } }) {
                     Image(systemName: "xmark")

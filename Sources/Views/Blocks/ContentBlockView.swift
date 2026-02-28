@@ -74,7 +74,7 @@ struct CodeBlockView: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(content.code)
-                    .font(.system(size: 12, design: .monospaced))
+                    .font(.system(size: 11, design: .monospaced))
                     .textSelection(.enabled)
                     .padding(.horizontal, 12)
                     .padding(.vertical, content.language != nil ? 4 : 12)
@@ -115,13 +115,13 @@ struct ToolCallBlockView: View {
                 }
 
                 Text(content.tool)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
 
                 // Summary: file path, command, pattern, etc.
                 if !content.summary.isEmpty {
                     Text(abbreviatePath(content.summary))
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -152,7 +152,7 @@ struct ToolCallBlockView: View {
 
                 ScrollView(.vertical, showsIndicators: true) {
                     Text(content.detail)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(content.isError ? .red : .secondary)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -197,7 +197,7 @@ struct ToolResultBlockView: View {
 
     var body: some View {
         Text(content.output)
-            .font(.system(size: 12, design: .monospaced))
+            .font(.system(size: 11, design: .monospaced))
             .foregroundStyle(content.isError ? .red : .secondary)
             .textSelection(.enabled)
             .padding(10)
@@ -219,18 +219,18 @@ struct ThinkingBlockView: View {
             HStack(spacing: 4) {
                 if content.isComplete {
                     Text("Thought for \(formattedDuration)")
-                        .font(.system(size: 13))
+                        .font(.system(size: 12))
                         .foregroundStyle(.tertiary)
                 } else {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
                         let elapsed = Int(context.date.timeIntervalSince(content.startTime))
                         if content.text.isEmpty {
                             Text("Thinking...")
-                                .font(.system(size: 13))
+                                .font(.system(size: 12))
                                 .foregroundStyle(.secondary)
                         } else {
                             Text("Thinking for \(elapsed)s")
-                                .font(.system(size: 13))
+                                .font(.system(size: 12))
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -253,7 +253,7 @@ struct ThinkingBlockView: View {
             // Thinking content — shown when expanded
             if isExpanded && !content.text.isEmpty {
                 Text(content.text)
-                    .font(.system(size: 13))
+                    .font(.system(size: 12))
                     .foregroundStyle(.secondary.opacity(0.8))
                     .lineSpacing(4)
                     .textSelection(.enabled)
@@ -278,7 +278,7 @@ struct ThinkingBlockView: View {
 
     private var formattedDuration: String {
         let end = content.endTime ?? Date()
-        let elapsed = Int(end.timeIntervalSince(content.startTime))
+        let elapsed = max(1, Int(end.timeIntervalSince(content.startTime)))
         if elapsed < 60 { return "\(elapsed)s" }
         return "\(elapsed / 60)m \(elapsed % 60)s"
     }
@@ -294,7 +294,7 @@ struct ProgressBlockView: View {
             ProgressView()
                 .controlSize(.small)
             Text(content.label)
-                .font(.system(size: 12))
+                .font(.system(size: 11))
                 .foregroundStyle(.secondary)
         }
     }
@@ -308,10 +308,10 @@ struct ErrorBlockView: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 12))
+                .font(.system(size: 11))
                 .foregroundStyle(.red)
             Text(content.message)
-                .font(.system(size: 12))
+                .font(.system(size: 11))
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)

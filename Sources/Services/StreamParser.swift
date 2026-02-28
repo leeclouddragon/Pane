@@ -14,6 +14,8 @@ enum ClaudeEvent {
     case result(ResultInfo)
     case messageStart
     case messageStop(stopReason: String?)
+    case compacting
+    case compactDone
     case unknown(type: String, raw: String)
 }
 
@@ -46,8 +48,15 @@ struct StreamParser {
 
         switch type {
 
-        // system init
+        // system events (init, status, compact)
         case "system":
+            let subtype = json["subtype"] as? String ?? ""
+            if subtype == "status", json["status"] as? String == "compacting" {
+                return .compacting
+            }
+            if subtype == "compact_boundary" || subtype == "microcompact_boundary" {
+                return .compactDone
+            }
             let sessionId = json["session_id"] as? String ?? ""
             let model = json["model"] as? String ?? ""
             let cwd = json["cwd"] as? String ?? ""

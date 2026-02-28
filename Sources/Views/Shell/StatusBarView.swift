@@ -52,7 +52,7 @@ struct StatusBarView: View {
             ContextRing(percent: contextPercent)
                 .padding(.horizontal, 6)
         }
-        .font(.system(size: 11, design: .monospaced))
+        .font(.system(size: 10, design: .monospaced))
         .foregroundStyle(.tertiary)
         .padding(.horizontal, 12)
         .padding(.vertical, 4)

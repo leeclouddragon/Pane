@@ -6,6 +6,7 @@ struct InputTextView: NSViewRepresentable {
     @Binding var text: String
     @Binding var height: CGFloat
     var font: NSFont = .systemFont(ofSize: 13)
+    var isFocused: Bool = true
     var onCommit: () -> Void = {}
     var onImagePaste: ((NSImage) -> Void)?
 
@@ -65,10 +66,12 @@ struct InputTextView: NSViewRepresentable {
         // Keep coordinator callbacks fresh
         context.coordinator.parent = self
 
-        // Auto focus
-        DispatchQueue.main.async {
-            if let window = textView.window, window.firstResponder !== textView {
-                window.makeFirstResponder(textView)
+        // Auto focus only when this pane is the focused one
+        if context.coordinator.parent.isFocused {
+            DispatchQueue.main.async {
+                if let window = textView.window, window.firstResponder !== textView {
+                    window.makeFirstResponder(textView)
+                }
             }
         }
     }

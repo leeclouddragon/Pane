@@ -31,12 +31,12 @@ struct MarkdownView: View {
         case .paragraph(let text):
             if let attributed = try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
                 Text(attributed)
-                    .font(.system(size: 13))
+                    .font(.system(size: 12))
                     .lineSpacing(4)
                     .textSelection(.enabled)
             } else {
                 Text(text)
-                    .font(.system(size: 13))
+                    .font(.system(size: 12))
                     .lineSpacing(4)
                     .textSelection(.enabled)
             }
@@ -53,7 +53,7 @@ struct MarkdownView: View {
                 }
                 ScrollView(.horizontal, showsIndicators: false) {
                     Text(code)
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(.system(size: 11, design: .monospaced))
                         .textSelection(.enabled)
                         .padding(.horizontal, 12)
                         .padding(.vertical, language != nil ? 4 : 12)
@@ -83,7 +83,7 @@ struct MarkdownView: View {
             HStack(spacing: 0) {
                 ForEach(Array(headers.enumerated()), id: \.offset) { _, header in
                     Text(header.trimmingCharacters(in: .whitespaces))
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 6)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -96,7 +96,7 @@ struct MarkdownView: View {
                 HStack(spacing: 0) {
                     ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
                         Text(cell.trimmingCharacters(in: .whitespaces))
-                            .font(.system(size: 12))
+                            .font(.system(size: 11))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 5)
                             .frame(maxWidth: .infinity, alignment: .leading)

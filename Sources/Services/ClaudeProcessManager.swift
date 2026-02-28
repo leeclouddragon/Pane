@@ -17,26 +17,28 @@ private func debugLog(_ msg: String) {
 /// so that Node.js + CLI initialization is already done when the user sends a message.
 @Observable
 final class ClaudeProcessManager {
-    private var process: Process?
-    private var lineBuffer = ""
-    private var resultReceived = false
+    // Internal state accessed from background threads — must be excluded
+    // from @Observable tracking to avoid deadlocking with the main thread.
+    @ObservationIgnored private var process: Process?
+    @ObservationIgnored private var lineBuffer = ""
+    @ObservationIgnored private var resultReceived = false
 
-    // Pre-warm state
-    private var warmProcess: Process?
-    private var warmStdinPipe: Pipe?
-    private var warmStdoutPipe: Pipe?
-    private var warmStderrPipe: Pipe?
-    private var warmCwd: String?
-    private var warmExePath: String?
+    // Pre-warm state (background thread access)
+    @ObservationIgnored private var warmProcess: Process?
+    @ObservationIgnored private var warmStdinPipe: Pipe?
+    @ObservationIgnored private var warmStdoutPipe: Pipe?
+    @ObservationIgnored private var warmStderrPipe: Pipe?
+    @ObservationIgnored private var warmCwd: String?
+    @ObservationIgnored private var warmExePath: String?
 
     // Cached environment (built once, reused)
-    private var cachedEnv: [String: String]?
+    @ObservationIgnored private var cachedEnv: [String: String]?
 
     var sessionId: String?
     var isRunning: Bool = false
 
     /// Callback for parsed events — called on main thread.
-    var onEvent: ((ClaudeEvent) -> Void)?
+    @ObservationIgnored var onEvent: ((ClaudeEvent) -> Void)?
 
     /// Find the claude binary in common locations (cached).
     private static var resolvedBinary: String?
@@ -76,6 +78,7 @@ final class ClaudeProcessManager {
         var args = [
             "-p",
             "--output-format", "stream-json",
+            "--input-format", "stream-json",
             "--verbose",
             "--include-partial-messages",
         ]
@@ -85,14 +88,28 @@ final class ClaudeProcessManager {
         return args
     }
 
+    /// Encode a prompt as a stream-json user message line.
+    private func encodeUserMessage(_ prompt: String) -> Data {
+        let message: [String: Any] = [
+            "type": "user",
+            "message": [
+                "role": "user",
+                "content": prompt,
+            ],
+        ]
+        var data = try! JSONSerialization.data(withJSONObject: message)
+        data.append(0x0A) // newline
+        return data
+    }
+
     // MARK: - Pre-warm
 
     /// Start a process ahead of time without a prompt.
     /// The process initializes (Node.js startup, config loading, MCP connections)
     /// and waits for stdin input. When send() is called, the prompt is piped in.
     func prewarm(cwd: String, executablePath: String? = nil) {
-        // Don't pre-warm if one is already running
-        guard warmProcess == nil else { return }
+        // Don't pre-warm if one is already running or cwd is empty
+        guard warmProcess == nil, !cwd.isEmpty else { return }
 
         let exe = executablePath ?? Self.findClaudeBinary()
         let env = resolveEnv()
@@ -213,9 +230,9 @@ final class ClaudeProcessManager {
             }
         }
 
-        // Write prompt to stdin and close (signals EOF → CLI reads prompt)
+        // Write user message as JSON line — CLI processes immediately (no EOF needed)
         if let handle = warmStdinPipe?.fileHandleForWriting {
-            handle.write(prompt.data(using: .utf8)!)
+            handle.write(encodeUserMessage(prompt))
             handle.closeFile()
         }
 
@@ -226,21 +243,21 @@ final class ClaudeProcessManager {
         warmExePath = nil
     }
 
-    /// Launch a brand new process with the prompt as a CLI argument.
+    /// Launch a brand new process and send the prompt via stdin JSON.
     private func launchNewProcess(prompt: String, cwd: String, exe: String) {
         let env = resolveEnv()
 
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: exe)
-        var args = buildArgs()
-        args.append(prompt)
-        proc.arguments = args
+        proc.arguments = buildArgs()
         proc.currentDirectoryURL = URL(fileURLWithPath: cwd)
         proc.environment = env
-        debugLog("args=\(args)")
+        debugLog("launchNewProcess (exe=\(exe) cwd=\(cwd) sid=\(sessionId ?? "nil"))")
 
+        let stdinPipe = Pipe()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
+        proc.standardInput = stdinPipe
         proc.standardOutput = stdoutPipe
         proc.standardError = stderrPipe
 
@@ -283,6 +300,9 @@ final class ClaudeProcessManager {
 
         do {
             try proc.run()
+            // Send prompt via stdin as JSON (CLI inits, then reads this)
+            stdinPipe.fileHandleForWriting.write(encodeUserMessage(prompt))
+            stdinPipe.fileHandleForWriting.closeFile()
         } catch {
             isRunning = false
             let errorEvent = ClaudeEvent.result(ResultInfo(
