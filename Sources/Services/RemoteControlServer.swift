@@ -323,6 +323,9 @@ final class RemoteControlServer {
 
             case .image(let content):
                 parts.append("[Image] \(content.url.path)")
+
+            case .systemResult(let content):
+                parts.append(content.text)
             }
         }
 

@@ -11,6 +11,21 @@ struct ComposerView: View {
     @State private var attachments: [AttachmentItem] = []
     @State private var textHeight: CGFloat = 22
 
+    // MARK: - Slash menu state
+
+    private var showSlashMenu: Bool {
+        conversation.draftText.hasPrefix("/") && !conversation.isStreaming
+    }
+
+    private var slashQuery: String {
+        guard showSlashMenu else { return "" }
+        return String(conversation.draftText.dropFirst())
+    }
+
+    private var filteredCommands: [SlashCommand] {
+        SlashCommand.filtered(by: slashQuery)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Attachments (above text input, like ChatGPT)
@@ -24,8 +39,10 @@ struct ComposerView: View {
                 text: $conversation.draftText,
                 height: $textHeight,
                 isFocused: isFocused,
+                slashMenuVisible: showSlashMenu && !filteredCommands.isEmpty,
                 onCommit: sendMessage,
-                onImagePaste: handleImagePaste
+                onImagePaste: handleImagePaste,
+                onSlashNavigate: handleSlashNavigate
             )
             .frame(height: textHeight)
 
@@ -86,19 +103,19 @@ struct ComposerView: View {
                 if conversation.isStreaming {
                     Button(action: { conversation.stop() }) {
                         Image(systemName: "stop.circle.fill")
-                            .font(.system(size: 24))
+                            .font(.system(size: 20))
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
-                } else {
-                    Button(action: sendMessage) {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 24))
-                            .foregroundStyle(canSend ? .secondary : .quaternary)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!canSend)
                 }
+
+                Button(action: sendMessage) {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 24))
+                        .foregroundStyle(canSend ? .secondary : .quaternary)
+                }
+                .buttonStyle(.plain)
+                .disabled(!canSend)
             }
             .padding(.top, 2)
         }
@@ -118,11 +135,40 @@ struct ComposerView: View {
             if hasContent { handleDrop(providers) }
             return hasContent
         }
+        .onChange(of: conversation.draftText) {
+            // Reset slash selection when query changes
+            if conversation.draftText.hasPrefix("/") {
+                conversation.slashSelectedIndex = 0
+            }
+        }
     }
 
     private var canSend: Bool {
         !conversation.draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         || !attachments.isEmpty
+    }
+
+    // MARK: - Slash command handling
+
+    private func handleSlashNavigate(_ action: SlashNavigateAction) {
+        let commands = filteredCommands
+        guard !commands.isEmpty else { return }
+        switch action {
+        case .up:
+            conversation.slashSelectedIndex = (conversation.slashSelectedIndex - 1 + commands.count) % commands.count
+        case .down:
+            conversation.slashSelectedIndex = (conversation.slashSelectedIndex + 1) % commands.count
+        case .confirm:
+            guard conversation.slashSelectedIndex < commands.count else { return }
+            executeSlashCommand(commands[conversation.slashSelectedIndex])
+        case .dismiss:
+            conversation.draftText = ""
+        }
+    }
+
+    private func executeSlashCommand(_ command: SlashCommand) {
+        conversation.draftText = ""
+        conversation.send(command.command)
     }
 
     private func sendMessage() {

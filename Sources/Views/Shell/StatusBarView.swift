@@ -17,7 +17,9 @@ struct StatusBarView: View {
                 HStack(spacing: 3) {
                     Image(systemName: "folder")
                         .font(.system(size: 8))
-                    Text(shortPath(conversation.workingDirectory))
+                    Text(compactPath(conversation.workingDirectory))
+                        .lineLimit(1)
+                        .help(shortPath(conversation.workingDirectory))
                 }
             }
 
@@ -97,6 +99,33 @@ struct StatusBarView: View {
             return "~" + path.dropFirst(home.count)
         }
         return path
+    }
+
+    /// Compact path for status bar display.
+    /// When path is short, show as-is. When long, abbreviate middle directories to first letter,
+    /// keep first and last 2 components full. Long individual names get middle-truncated.
+    private func compactPath(_ path: String, maxLength: Int = 45) -> String {
+        let display = shortPath(path)
+        guard display.count > maxLength else { return display }
+
+        let parts = display.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count > 3 else { return display }
+
+        let head = [parts[0]]                       // ~ or root
+        let tail = Array(parts.suffix(2))            // last 2 components
+        let middle = Array(parts.dropFirst().dropLast(2))
+
+        // Abbreviate middle directories to first character;
+        // for long names (e.g. DerivedData hash), show first char + … + last char
+        let abbreviated = middle.map { comp -> String in
+            if comp.count <= 1 { return comp }
+            if comp.count > 12 {
+                return "\(comp.prefix(1))\u{2026}\(comp.suffix(1))"
+            }
+            return String(comp.prefix(1))
+        }
+
+        return (head + abbreviated + tail).joined(separator: "/")
     }
 }
 

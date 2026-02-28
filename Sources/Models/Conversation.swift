@@ -30,6 +30,11 @@ final class ConversationState: Identifiable {
     private var targetAssistantIndex: Int = -1
     /// Last prompt sent to CLI, kept for session-not-found retry.
     private var lastPrompt: String = ""
+    /// Pending prompts queued while streaming. User messages are already in `messages`.
+    private var pendingPrompts: [String] = []
+
+    /// Selected index in the slash command menu (shared so ConversationView can render the menu).
+    var slashSelectedIndex: Int = 0
 
     init(
         title: String = "New Thread",
@@ -104,15 +109,6 @@ final class ConversationState: Identifiable {
     func send(_ text: String, attachments: [URL] = []) {
         guard !text.isEmpty || !attachments.isEmpty else { return }
 
-        // Stop any in-flight process before starting a new one
-        if processManager.isRunning {
-            processManager.stop()
-        }
-
-        // Bump generation so stale events from old process are discarded
-        eventGeneration += 1
-        let gen = eventGeneration
-
         // Build prompt: user text + attachment references
         var prompt = text
         if !attachments.isEmpty {
@@ -124,19 +120,36 @@ final class ConversationState: Identifiable {
             }
         }
 
-        // Add user message with image blocks
+        // Add user message with image blocks (display immediately)
         var userBlocks: [ContentBlock] = attachments.map { .image(ImageContent(url: $0)) }
         if !text.isEmpty {
             userBlocks.append(.text(TextContent(text: text)))
         }
-        let userMsg = Message(role: .user, blocks: userBlocks)
-        messages.append(userMsg)
+        messages.append(Message(role: .user, blocks: userBlocks))
         draftText = ""
+
+        // If currently streaming, queue prompt for later
+        if isStreaming {
+            pendingPrompts.append(prompt)
+            return
+        }
+
+        startRequest(prompt: prompt)
+    }
+
+    private func startRequest(prompt: String) {
+        // Stop any in-flight process before starting a new one
+        if processManager.isRunning {
+            processManager.stop()
+        }
+
+        // Bump generation so stale events from old process are discarded
+        eventGeneration += 1
+        let gen = eventGeneration
 
         // Start streaming assistant message
         isStreaming = true
-        let assistantMsg = Message(role: .assistant, blocks: [])
-        messages.append(assistantMsg)
+        messages.append(Message(role: .assistant, blocks: []))
         targetAssistantIndex = messages.count - 1
 
         // Set event handler with captured generation
@@ -155,6 +168,19 @@ final class ConversationState: Identifiable {
     func stop() {
         processManager.stop()
         isStreaming = false
+        // Clean up empty assistant message if no content was received
+        if targetAssistantIndex >= 0 && targetAssistantIndex < messages.count
+            && messages[targetAssistantIndex].blocks.isEmpty {
+            messages.remove(at: targetAssistantIndex)
+            targetAssistantIndex = -1
+        }
+        sendNextPending()
+    }
+
+    private func sendNextPending() {
+        guard !pendingPrompts.isEmpty else { return }
+        let next = pendingPrompts.removeFirst()
+        startRequest(prompt: next)
     }
 
     // MARK: - Event handling
@@ -260,10 +286,22 @@ final class ConversationState: Identifiable {
                 messages[idx].blocks.append(
                     .error(ErrorContent(message: info.result))
                 )
+            } else if messages[idx].blocks.isEmpty && !info.result.isEmpty {
+                // Slash commands handled locally by CLI return result text without content blocks
+                messages[idx].blocks.append(
+                    .systemResult(SystemResultContent(text: info.result))
+                )
+            }
+            // Remove empty assistant message if still nothing to show
+            if messages[idx].blocks.isEmpty {
+                messages.remove(at: idx)
+                targetAssistantIndex = -1
             }
 
-            // Pre-warm next process so it's ready when user sends again
-            if !info.isError {
+            // Send next pending message, or pre-warm
+            if !pendingPrompts.isEmpty {
+                sendNextPending()
+            } else if !info.isError {
                 processManager.prewarm(
                     cwd: workingDirectory,
                     executablePath: providerState?.executablePath

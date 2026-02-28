@@ -1,14 +1,23 @@
 import SwiftUI
 import AppKit
 
+enum SlashNavigateAction {
+    case up
+    case down
+    case confirm
+    case dismiss
+}
+
 /// NSTextView wrapper with custom cursor color, auto-growing height, and Cmd+Enter to send.
 struct InputTextView: NSViewRepresentable {
     @Binding var text: String
     @Binding var height: CGFloat
     var font: NSFont = .systemFont(ofSize: 13)
     var isFocused: Bool = true
+    var slashMenuVisible: Bool = false
     var onCommit: () -> Void = {}
     var onImagePaste: ((NSImage) -> Void)?
+    var onSlashNavigate: ((SlashNavigateAction) -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -63,6 +72,7 @@ struct InputTextView: NSViewRepresentable {
         }
 
         textView.onCommit = onCommit
+        textView.slashMenuVisible = slashMenuVisible
         // Keep coordinator callbacks fresh
         context.coordinator.parent = self
 
@@ -86,6 +96,10 @@ struct InputTextView: NSViewRepresentable {
 
         func handleImagePaste(_ image: NSImage) {
             parent.onImagePaste?(image)
+        }
+
+        func handleSlashNavigate(_ action: SlashNavigateAction) {
+            parent.onSlashNavigate?(action)
         }
 
         func textDidChange(_ notification: Notification) {
@@ -113,12 +127,15 @@ struct InputTextView: NSViewRepresentable {
 /// Custom NSTextView: placeholder + Enter to send, Shift+Enter for newline.
 class PaneTextView: NSTextView {
     var onCommit: () -> Void = {}
+    var slashMenuVisible: Bool = false
     weak var coordinator: InputTextView.Coordinator?
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         // Cmd+V: handle paste (SPM executable has no Edit menu, so paste: is never dispatched)
+        // Guard: only handle if this text view is the first responder (prevents cross-pane paste in split mode)
         if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-           event.charactersIgnoringModifiers == "v" {
+           event.charactersIgnoringModifiers == "v",
+           window?.firstResponder == self {
             pasteFromClipboard()
             return true
         }
@@ -144,6 +161,28 @@ class PaneTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
+        // When slash menu is visible, intercept navigation keys
+        if slashMenuVisible {
+            switch event.keyCode {
+            case 126: // Up arrow
+                coordinator?.handleSlashNavigate(.up)
+                return
+            case 125: // Down arrow
+                coordinator?.handleSlashNavigate(.down)
+                return
+            case 36: // Enter
+                if !hasMarkedText() {
+                    coordinator?.handleSlashNavigate(.confirm)
+                    return
+                }
+            case 53: // Escape
+                coordinator?.handleSlashNavigate(.dismiss)
+                return
+            default:
+                break
+            }
+        }
+
         // Enter (keyCode 36) without Shift → send
         // Skip if IME is composing (hasMarkedText) — e.g. Chinese pinyin using Enter to confirm
         if event.keyCode == 36 && !event.modifierFlags.contains(.shift) && !hasMarkedText() {

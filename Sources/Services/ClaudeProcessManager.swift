@@ -23,6 +23,9 @@ final class ClaudeProcessManager {
     @ObservationIgnored private var lineBuffer = ""
     @ObservationIgnored private var resultReceived = false
 
+    /// Serial queue protecting lineBuffer from concurrent access by readability handlers.
+    @ObservationIgnored private let parseQueue = DispatchQueue(label: "com.pane.line-parser")
+
     // Pre-warm state (background thread access)
     @ObservationIgnored private var warmProcess: Process?
     @ObservationIgnored private var warmStdinPipe: Pipe?
@@ -328,6 +331,13 @@ final class ClaudeProcessManager {
     // MARK: - Line buffering
 
     private func processChunk(_ chunk: String) {
+        parseQueue.async { [weak self] in
+            self?._processChunkSync(chunk)
+        }
+    }
+
+    /// Must only be called on parseQueue.
+    private func _processChunkSync(_ chunk: String) {
         lineBuffer += chunk
         while let newlineRange = lineBuffer.range(of: "\n") {
             let line = String(lineBuffer[lineBuffer.startIndex..<newlineRange.lowerBound])

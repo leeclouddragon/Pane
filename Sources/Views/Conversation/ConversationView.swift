@@ -10,6 +10,37 @@ struct ConversationView: View {
     @State private var recentSessions: [SessionEntry] = []
     @State private var sessionsLoaded = false
 
+    // MARK: - Slash menu (computed from conversation.draftText)
+
+    private var showSlashMenu: Bool {
+        conversation.draftText.hasPrefix("/") && !conversation.isStreaming
+    }
+
+    private var slashQuery: String {
+        guard showSlashMenu else { return "" }
+        return String(conversation.draftText.dropFirst())
+    }
+
+    private var filteredSlashCommands: [SlashCommand] {
+        SlashCommand.filtered(by: slashQuery)
+    }
+
+    @ViewBuilder
+    private var slashMenuView: some View {
+        if showSlashMenu && !filteredSlashCommands.isEmpty {
+            SlashMenuView(
+                commands: filteredSlashCommands,
+                selectedIndex: conversation.slashSelectedIndex,
+                onSelect: { cmd in
+                    conversation.draftText = ""
+                    conversation.send(cmd.command)
+                }
+            )
+            .transition(.opacity.combined(with: .move(edge: .bottom)))
+            .animation(.easeOut(duration: 0.12), value: showSlashMenu)
+        }
+    }
+
     private var isFocusedPane: Bool {
         paneState.activeConversation === conversation
     }
@@ -38,7 +69,8 @@ struct ConversationView: View {
                         .font(.system(size: 16, weight: .semibold))
                 }
 
-                // Composer
+                // Slash menu + Composer
+                slashMenuView
                 ComposerView(conversation: conversation, isWelcome: true, isFocused: isFocusedPane)
 
                 // Recent sessions
@@ -152,6 +184,8 @@ struct ConversationView: View {
             }
 
             VStack(spacing: 6) {
+                slashMenuView
+
                 ComposerView(conversation: conversation, isFocused: isFocusedPane)
 
                 StatusBarView(conversation: conversation)

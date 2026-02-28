@@ -23,6 +23,8 @@ struct ContentBlockView: View {
             ErrorBlockView(content: content)
         case .image(let content):
             ImageBlockView(content: content, compact: compact)
+        case .systemResult(let content):
+            SystemResultBlockView(content: content)
         }
     }
 }
@@ -348,5 +350,82 @@ struct ImageBlockView: View {
             }
             .buttonStyle(.plain)
         }
+    }
+}
+
+// MARK: - System Result (slash command output)
+
+struct SystemResultBlockView: View {
+    let content: SystemResultContent
+    @State private var isHovered = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Context usage progress bar (if detected)
+            if let pct = content.contextPercentage, let modelLine = content.modelLine {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(modelLine)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.secondary)
+
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(.quaternary)
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(barColor(pct))
+                                .frame(width: geo.size.width * min(pct / 100, 1.0))
+                        }
+                    }
+                    .frame(height: 6)
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 10)
+                .padding(.bottom, 6)
+
+                Divider().padding(.horizontal, 8)
+            }
+
+            // Raw text content (with ANSI color support)
+            HStack(alignment: .top) {
+                ANSITextView(text: content.text)
+
+                Spacer(minLength: 0)
+            }
+            .padding(12)
+
+            // Copy button on hover
+            if isHovered {
+                HStack {
+                    Spacer()
+                    Button(action: {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(content.text, forType: .string)
+                    }) {
+                        Image(systemName: "doc.on.doc")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                            .padding(6)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.trailing, 6)
+                .padding(.bottom, 4)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(.separator.opacity(0.5), lineWidth: 0.5)
+        )
+        .onHover { isHovered = $0 }
+    }
+
+    private func barColor(_ percentage: Double) -> Color {
+        if percentage < 50 { return .green.opacity(0.6) }
+        if percentage < 80 { return .orange.opacity(0.6) }
+        return .red.opacity(0.6)
     }
 }

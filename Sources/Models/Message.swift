@@ -30,6 +30,7 @@ enum ContentBlock: Identifiable {
     case progress(ProgressContent)
     case error(ErrorContent)
     case image(ImageContent)
+    case systemResult(SystemResultContent)
 
     var id: UUID {
         switch self {
@@ -41,6 +42,7 @@ enum ContentBlock: Identifiable {
         case .progress(let c): c.id
         case .error(let c): c.id
         case .image(let c): c.id
+        case .systemResult(let c): c.id
         }
     }
 }
@@ -130,4 +132,24 @@ struct ErrorContent: Identifiable {
 struct ImageContent: Identifiable {
     let id = UUID()
     var url: URL
+}
+
+struct SystemResultContent: Identifiable {
+    let id = UUID()
+    var text: String
+
+    /// Try to extract context usage percentage from text like "Xk/Yk tokens (Z%)"
+    var contextPercentage: Double? {
+        guard let range = text.range(of: #"\((\d+)%\)"#, options: .regularExpression) else { return nil }
+        let match = text[range]
+        let digits = match.filter(\.isNumber)
+        return Double(digits)
+    }
+
+    /// Try to extract model name from first line containing "·"
+    var modelLine: String? {
+        text.components(separatedBy: "\n")
+            .first { $0.contains("·") && $0.contains("tokens") }?
+            .trimmingCharacters(in: .whitespaces)
+    }
 }
