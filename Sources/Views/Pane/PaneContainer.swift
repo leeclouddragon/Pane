@@ -8,12 +8,18 @@ struct PaneContainer: View {
     var body: some View {
         switch node {
         case .conversation(let state):
-            ConversationView(conversation: state)
-                .overlay(dimOverlay(for: state))
-                .contentShape(Rectangle())
-                .simultaneousGesture(
-                    TapGesture().onEnded { paneState.focusedConversation = state }
-                )
+            VStack(spacing: 0) {
+                if paneState.paneCount > 1 {
+                    PaneTitleBar(conversation: state)
+                    Divider()
+                }
+                ConversationView(conversation: state)
+                    .overlay(dimOverlay(for: state))
+            }
+            .contentShape(Rectangle())
+            .simultaneousGesture(
+                TapGesture().onEnded { paneState.focusedConversation = state }
+            )
 
         case .split(let direction, let ratio, let first, let second):
             PaneSplit(direction: direction, ratio: ratio) {
@@ -116,6 +122,52 @@ struct PaneSplit<First: View, Second: View>: View {
                     .position(x: crossSize / 2, y: pos)
             }
         }
+    }
+}
+
+/// Per-pane title bar, visible only in multi-pane mode.
+/// Shows conversation title + "+" split button (split right).
+private struct PaneTitleBar: View {
+    let conversation: ConversationState
+    @Environment(PaneState.self) private var paneState
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text("—")
+                .foregroundStyle(.quaternary)
+            Text(title)
+                .foregroundStyle(isFocused ? .primary : .secondary)
+                .lineLimit(1)
+
+            Spacer()
+
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    paneState.splitHorizontal(pane: conversation)
+                }
+            }) {
+                Image(systemName: "plus")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Split Right")
+        }
+        .font(.system(size: 11))
+        .frame(height: 28)
+        .padding(.horizontal, 8)
+        .background(Color(nsColor: .windowBackgroundColor).opacity(0.8))
+    }
+
+    private var isFocused: Bool {
+        paneState.focusedConversation === conversation
+    }
+
+    private var title: String {
+        let t = conversation.displayTitle
+        return t.isEmpty ? "New Thread" : t
     }
 }
 

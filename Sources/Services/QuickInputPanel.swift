@@ -5,43 +5,34 @@ import SwiftUI
 
 @Observable
 final class QuickInputState {
-    enum Mode {
-        case compact
-        case expanded(ConversationState, PaneState)
-    }
-    var mode: Mode = .compact
-    var compactText = ""
-
-    var isExpanded: Bool {
-        if case .expanded = mode { return true }
-        return false
-    }
-
-    var conversation: ConversationState? {
-        if case .expanded(let c, _) = mode { return c }
-        return nil
-    }
+    var isExpanded = false
+    var conversation: ConversationState?
+    var floatingPaneState: PaneState?
 }
 
 // MARK: - Panel controller
 
 /// Global quick-input floating panel, summoned via Option+Space.
-/// Compact mode: Spotlight-style input bar.
-/// Expanded mode: floating conversation pane reusing ConversationView.
+/// Compact mode: reuses ComposerView (same as welcome page).
+/// Expanded mode: floating conversation pane with ConversationView.
 final class QuickInputPanel: NSObject {
     private var panel: NSPanel?
     private weak var paneState: PaneState?
     private var globalMonitor: Any?
     private var localMonitor: Any?
+    private var globalClickMonitor: Any?
+    private var localClickMonitor: Any?
 
     private let state = QuickInputState()
-    /// Dedicated PaneState for the floating pane (isolated from main window tree).
-    private var floatingPaneState: PaneState?
     private let settings: AppSettings = {
         let s = AppSettings()
         s.widthMode = .compact
         return s
     }()
+
+    // Position memory keys
+    private static let savedMidXKey = "QuickInputPanel.midX"
+    private static let savedBottomYKey = "QuickInputPanel.bottomY"
 
     func setup(paneState: PaneState) {
         self.paneState = paneState
@@ -70,17 +61,16 @@ final class QuickInputPanel: NSObject {
         panel.hidesOnDeactivate = false
         panel.animationBehavior = .utilityWindow
         panel.isReleasedWhenClosed = false
-        panel.minSize = NSSize(width: 360, height: 56)
+        panel.minSize = NSSize(width: 360, height: 100)
         panel.maxSize = NSSize(width: 800, height: 900)
 
         let rootView = QuickInputRootView(
             state: state,
             settings: settings,
-            onCompactSubmit: { [weak self] text in self?.expandToPane(text: text) },
+            onExpand: { [weak self] in self?.expandToPane() },
             onDismiss: { [weak self] in self?.dismiss() }
         )
         let hosting = NSHostingView(rootView: rootView)
-        // Prevent SwiftUI content size changes from resizing the window
         hosting.sizingOptions = []
         panel.contentView = hosting
 
@@ -119,25 +109,46 @@ final class QuickInputPanel: NSObject {
     }
 
     private func show() {
-        guard let panel else { return }
-        if !state.isExpanded {
-            // Compact: disable resize, center on screen
-            panel.styleMask.remove(.resizable)
-            panel.setFrame(compactFrame(), display: true)
-        } else {
-            // Expanded: enable resize
-            panel.styleMask.insert(.resizable)
-            if panel.frame.height < 200 {
-                panel.setFrame(expandedFrame(), display: true)
-            }
+        guard let panel, let paneState else { return }
+
+        // Always start fresh — new conversation each time
+        state.conversation?.stop()
+
+        let conv = ConversationState()
+        conv.providerState = paneState.providerState
+        conv.activeProviderID = paneState.providerState.activeProviderID
+        if let focused = paneState.activeConversation {
+            conv.workingDirectory = focused.workingDirectory
         }
+
+        let ps = PaneState(providerState: paneState.providerState)
+        ps.focusedConversation = conv
+
+        state.conversation = conv
+        state.floatingPaneState = ps
+        state.isExpanded = false
+
+        panel.styleMask.remove(.resizable)
+        panel.setFrame(compactFrame(), display: true)
         panel.orderFrontRegardless()
         panel.makeKey()
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
+
+        installClickOutsideMonitors()
     }
 
     func dismiss() {
+        savePosition()
+        removeClickOutsideMonitors()
+
         panel?.orderOut(nil)
+
+        // Always reset — new session next time
+        state.conversation?.stop()
+        state.conversation = nil
+        state.floatingPaneState = nil
+        state.isExpanded = false
+
         // Restore focus to main window
         if let mainWindow = NSApp.windows.first(where: { $0 !== panel && $0.canBecomeKey }) {
             mainWindow.makeKeyAndOrderFront(nil)
@@ -146,71 +157,81 @@ final class QuickInputPanel: NSObject {
 
     // MARK: - Expand to floating pane
 
-    private func expandToPane(text: String) {
-        guard let paneState else { return }
+    private func expandToPane() {
+        state.isExpanded = true
 
-        // Create conversation with same provider config as main window
-        let conv = ConversationState()
-        conv.providerState = paneState.providerState
-        conv.activeProviderID = paneState.providerState.activeProviderID
-        if let focused = paneState.activeConversation {
-            conv.workingDirectory = focused.workingDirectory
-        }
-
-        // Dedicated PaneState so ConversationView.isFocusedPane works
-        let ps = PaneState(providerState: paneState.providerState)
-        ps.focusedConversation = conv
-        self.floatingPaneState = ps
-
-        // Send message first (so ConversationView enters conversationLayout)
-        conv.send(text)
-
-        // Switch mode — SwiftUI will reactively update the view
-        state.compactText = ""
-        state.mode = .expanded(conv, ps)
-
-        // Resize panel to expanded size
         guard let panel else { return }
         panel.styleMask.insert(.resizable)
         let target = expandedFrame()
         panel.setFrame(target, display: true, animate: true)
     }
 
-    // MARK: - Reset to compact
+    // MARK: - Position memory
 
-    private func reset() {
-        // Stop any running process
-        if let conv = state.conversation {
-            conv.stop()
-        }
-        floatingPaneState = nil
-        state.mode = .compact
-
+    private func savePosition() {
         guard let panel else { return }
-        panel.styleMask.remove(.resizable)
-        let target = compactFrame()
-        panel.setFrame(target, display: true, animate: true)
+        UserDefaults.standard.set(Double(panel.frame.midX), forKey: Self.savedMidXKey)
+        UserDefaults.standard.set(Double(panel.frame.origin.y), forKey: Self.savedBottomYKey)
     }
 
     // MARK: - Frame calculations
 
     private func compactFrame() -> NSRect {
-        let screen = NSScreen.main ?? NSScreen.screens[0]
         let w: CGFloat = 600
-        let h: CGFloat = 56
-        let x = screen.frame.midX - w / 2
-        let y = screen.frame.maxY - screen.frame.height / 3
+        let h: CGFloat = 100
+
+        // Restore saved position if available
+        let defaults = UserDefaults.standard
+        if defaults.object(forKey: Self.savedMidXKey) != nil {
+            let midX = CGFloat(defaults.double(forKey: Self.savedMidXKey))
+            let bottomY = CGFloat(defaults.double(forKey: Self.savedBottomYKey))
+            return NSRect(x: midX - w / 2, y: bottomY, width: w, height: h)
+        }
+
+        // Default: horizontally centered, lower portion of screen
+        let screen = NSScreen.main ?? NSScreen.screens[0]
+        let vis = screen.visibleFrame
+        let x = vis.midX - w / 2
+        let y = vis.origin.y + vis.height * 0.3
         return NSRect(x: x, y: y, width: w, height: h)
     }
 
     private func expandedFrame() -> NSRect {
-        let screen = NSScreen.main ?? NSScreen.screens[0]
         let w: CGFloat = 500
         let h: CGFloat = 620
-        // Position: keep horizontal center, drop down from compact position
-        let x = screen.frame.midX - w / 2
-        let y = screen.frame.maxY - screen.frame.height / 3 - h + 56
-        return NSRect(x: x, y: y, width: w, height: h)
+
+        // Expand upward from current panel: keep bottom edge, center horizontally
+        if let panel, panel.frame.width > 0 {
+            let x = panel.frame.midX - w / 2
+            let y = panel.frame.origin.y
+            return NSRect(x: x, y: y, width: w, height: h)
+        }
+
+        let screen = NSScreen.main ?? NSScreen.screens[0]
+        let vis = screen.visibleFrame
+        return NSRect(x: vis.midX - w / 2, y: vis.origin.y + vis.height * 0.3, width: w, height: h)
+    }
+
+    // MARK: - Click outside monitors
+
+    private func installClickOutsideMonitors() {
+        // Clicks in other apps → dismiss
+        globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            DispatchQueue.main.async { self?.dismiss() }
+        }
+        // Clicks within Pane but not on the panel → dismiss
+        localClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            guard let self, let panel = self.panel, panel.isVisible else { return event }
+            if event.window !== panel {
+                DispatchQueue.main.async { self.dismiss() }
+            }
+            return event
+        }
+    }
+
+    private func removeClickOutsideMonitors() {
+        if let m = globalClickMonitor { NSEvent.removeMonitor(m); globalClickMonitor = nil }
+        if let m = localClickMonitor { NSEvent.removeMonitor(m); localClickMonitor = nil }
     }
 }
 
@@ -219,22 +240,28 @@ final class QuickInputPanel: NSObject {
 private struct QuickInputRootView: View {
     @Bindable var state: QuickInputState
     let settings: AppSettings
-    var onCompactSubmit: (String) -> Void
+    var onExpand: () -> Void
     var onDismiss: () -> Void
 
     var body: some View {
         Group {
-            switch state.mode {
-            case .compact:
-                QuickInputBar(
-                    text: $state.compactText,
-                    onSubmit: onCompactSubmit,
-                    onDismiss: onDismiss
-                )
-            case .expanded(let conversation, let paneState):
-                FloatingPaneView(conversation: conversation, onDismiss: onDismiss)
-                    .environment(paneState)
-                    .environment(settings)
+            if let conversation = state.conversation {
+                if state.isExpanded, let ps = state.floatingPaneState {
+                    FloatingPaneView(conversation: conversation, onDismiss: onDismiss)
+                        .environment(ps)
+                        .environment(settings)
+                } else {
+                    // Compact: reuse ComposerView (same as welcome page)
+                    ComposerView(conversation: conversation, isWelcome: true, isFocused: true)
+                        .shadow(color: .black.opacity(0.15), radius: 20, y: 8)
+                        .padding(16)
+                        .background(EscapeKeyHandler(onEscape: onDismiss))
+                        .onChange(of: conversation.messages.count) {
+                            if !conversation.messages.isEmpty {
+                                onExpand()
+                            }
+                        }
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -267,7 +294,7 @@ private struct FloatingPaneView: View {
     }
 }
 
-// MARK: - Escape key handler (for expanded mode dismissal)
+// MARK: - Escape key handler
 
 private struct EscapeKeyHandler: NSViewRepresentable {
     var onEscape: () -> Void
@@ -295,116 +322,6 @@ private struct EscapeKeyHandler: NSViewRepresentable {
             } else {
                 super.keyDown(with: event)
             }
-        }
-    }
-}
-
-// MARK: - Compact input bar
-
-private struct QuickInputBar: View {
-    @Binding var text: String
-    var onSubmit: (String) -> Void
-    var onDismiss: () -> Void
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "sparkle")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(.tertiary)
-
-            QuickInputTextField(
-                text: $text,
-                onCommit: submitAction,
-                onEscape: onDismiss
-            )
-
-            Button(action: submitAction) {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 20))
-                    .foregroundStyle(
-                        text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            ? Color.secondary.opacity(0.3)
-                            : Color.accentColor
-                    )
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(Color(nsColor: .separatorColor).opacity(0.4), lineWidth: 0.5)
-        )
-        .shadow(color: .black.opacity(0.15), radius: 20, y: 8)
-        .padding(8)
-    }
-
-    private func submitAction() {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        onSubmit(trimmed)
-    }
-}
-
-// MARK: - NSTextField wrapper (compact mode input)
-
-private struct QuickInputTextField: NSViewRepresentable {
-    @Binding var text: String
-    var onCommit: () -> Void
-    var onEscape: () -> Void
-
-    func makeNSView(context: Context) -> NSTextField {
-        let field = NSTextField()
-        field.delegate = context.coordinator
-        field.font = .systemFont(ofSize: 14)
-        field.isBezeled = false
-        field.drawsBackground = false
-        field.focusRingType = .none
-        field.placeholderString = "Ask anything..."
-        field.cell?.lineBreakMode = .byTruncatingTail
-        field.cell?.isScrollable = true
-        return field
-    }
-
-    func updateNSView(_ field: NSTextField, context: Context) {
-        if field.stringValue != text {
-            field.stringValue = text
-        }
-        // Only auto-focus when the panel is the key window (not just visible).
-        // Prevents stealing focus from the main window on unrelated SwiftUI updates.
-        DispatchQueue.main.async {
-            guard let window = field.window,
-                  window.isKeyWindow,
-                  window.firstResponder !== field.currentEditor()
-            else { return }
-            window.makeFirstResponder(field)
-        }
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
-
-    final class Coordinator: NSObject, NSTextFieldDelegate {
-        var parent: QuickInputTextField
-        init(_ parent: QuickInputTextField) { self.parent = parent }
-
-        func controlTextDidChange(_ obj: Notification) {
-            guard let field = obj.object as? NSTextField else { return }
-            parent.text = field.stringValue
-        }
-
-        func control(_ control: NSControl, textView: NSTextView,
-                      doCommandBy selector: Selector) -> Bool {
-            if selector == #selector(NSResponder.insertNewline(_:)) {
-                parent.onCommit()
-                return true
-            }
-            if selector == #selector(NSResponder.cancelOperation(_:)) {
-                parent.onEscape()
-                return true
-            }
-            return false
         }
     }
 }
