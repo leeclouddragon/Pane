@@ -5,6 +5,10 @@ import AppKit
 struct PaneApp: App {
     @State private var paneState: PaneState
     @State private var settings = AppSettings()
+    /// Menu bar status item — must be retained for the lifetime of the app.
+    private let menuBarManager = MenuBarManager()
+    /// Global quick-input panel — Option+Space to toggle.
+    private let quickInputPanel = QuickInputPanel()
 
     init() {
         // SPM executable needs manual activation to show windows and dock icon
@@ -12,7 +16,11 @@ struct PaneApp: App {
         NSApplication.shared.activate(ignoringOtherApps: true)
 
         let provider = ProviderState()
-        _paneState = State(initialValue: PaneState(providerState: provider))
+        let ps = PaneState(providerState: provider)
+        _paneState = State(initialValue: ps)
+
+        // Register global hotkey immediately — not deferred to .onAppear
+        quickInputPanel.setup(paneState: ps)
     }
 
     var body: some Scene {
@@ -21,6 +29,7 @@ struct PaneApp: App {
                 .environment(paneState)
                 .environment(settings)
                 .onAppear {
+                    menuBarManager.setup(paneState: paneState)
                     RemoteControlServer.shared.startIfPossible(paneState: paneState)
                 }
         }

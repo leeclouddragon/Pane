@@ -51,14 +51,8 @@ struct MessageView: View {
 
     private var assistantContent: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if message.blocks.isEmpty {
-                StreamingIndicator()
-            }
             ForEach(message.blocks) { block in
                 ContentBlockView(block: block)
-            }
-            if let duration = message.durationSeconds {
-                CompletionIndicator(seconds: duration)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -67,9 +61,16 @@ struct MessageView: View {
 
 // MARK: - Streaming indicator (Claude Code style shimmer)
 
-struct StreamingIndicator: View {
-    // Picked once at creation — no cycling
-    @State private var verb = Self.verbs.randomElement()!
+/// Unified activity indicator at the bottom of the conversation.
+/// Streaming: animated star + verb + live timer.
+/// Complete: static star + past-tense verb + final duration.
+struct ActivityIndicator: View {
+    let isStreaming: Bool
+    let startTime: Date?
+    let durationSeconds: Int?
+
+    @State private var verb = Self.streamingVerbs.randomElement()!
+    @State private var completionVerb = Self.completionVerbs.randomElement()!
     @State private var color = Self.palette.randomElement()!
 
     @State private var shimmerPhase: CGFloat = 0
@@ -77,18 +78,35 @@ struct StreamingIndicator: View {
     @State private var starRotation: Double = 0
 
     var body: some View {
+        if isStreaming {
+            streamingView
+        } else if let seconds = durationSeconds {
+            completionView(seconds)
+        }
+    }
+
+    // MARK: - Streaming state
+
+    private var streamingView: some View {
         HStack(spacing: 7) {
-            // Six-pointed star with gentle pulse + spin
             Text("\u{2736}")
                 .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(color)
                 .scaleEffect(starScale)
                 .rotationEffect(.degrees(starRotation))
 
-            // Shimmer text
             shimmerText
+
+            if let start = startTime {
+                TimelineView(.periodic(from: start, by: 1)) { context in
+                    Text(formatDuration(Int(context.date.timeIntervalSince(start))))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(color.opacity(0.5))
+                }
+            }
         }
         .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear {
             withAnimation(.linear(duration: 1.8).repeatForever(autoreverses: false)) {
                 shimmerPhase = 1
@@ -126,38 +144,17 @@ struct StreamingIndicator: View {
         }
     }
 
-    private static let palette: [Color] = [
-        Color(red: 0.95, green: 0.45, blue: 0.30), // coral
-        Color(red: 0.90, green: 0.55, blue: 0.20), // amber
-        Color(red: 0.85, green: 0.35, blue: 0.55), // rose
-        Color(red: 0.70, green: 0.45, blue: 0.85), // violet
-        Color(red: 0.40, green: 0.55, blue: 0.90), // blue
-        Color(red: 0.35, green: 0.75, blue: 0.65), // teal
-    ]
+    // MARK: - Completion state
 
-    private static let verbs = [
-        "Pondering", "Ruminating", "Cogitating", "Musing",
-        "Contemplating", "Noodling", "Deliberating", "Mulling over",
-        "Dilly-dallying", "Dreaming up", "Brainstorming", "Percolating",
-        "Woolgathering", "Chewing on it", "Marinating", "Infusing",
-        "Daydreaming", "Manifesting", "Conjuring", "Simmering",
-    ]
-}
-
-// MARK: - Completion indicator
-
-struct CompletionIndicator: View {
-    let seconds: Int
-
-    // Verb picked once per indicator instance
-    @State private var verb = verbs.randomElement()!
-
-    var body: some View {
-        Text("\u{2736} \(verb) for \(formatDuration(seconds))")
-            .font(.system(size: 11))
+    private func completionView(_ seconds: Int) -> some View {
+        Text("\u{2736} \(completionVerb) for \(formatDuration(seconds))")
+            .font(.system(size: 12))
             .foregroundStyle(.quaternary)
-            .padding(.top, 2)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
+
+    // MARK: - Helpers
 
     private func formatDuration(_ s: Int) -> String {
         if s < 60 { return "\(s)s" }
@@ -167,7 +164,23 @@ struct CompletionIndicator: View {
         return "\(m)m \(remainder)s"
     }
 
-    private static let verbs = [
+    private static let palette: [Color] = [
+        Color(red: 0.95, green: 0.45, blue: 0.30),
+        Color(red: 0.90, green: 0.55, blue: 0.20),
+        Color(red: 0.85, green: 0.35, blue: 0.55),
+        Color(red: 0.70, green: 0.45, blue: 0.85),
+        Color(red: 0.40, green: 0.55, blue: 0.90),
+        Color(red: 0.35, green: 0.75, blue: 0.65),
+    ]
+
+    private static let streamingVerbs = [
+        "Pondering", "Ruminating", "Cogitating", "Musing",
+        "Contemplating", "Noodling", "Deliberating", "Mulling over",
+        "Dreaming up", "Brainstorming", "Percolating",
+        "Daydreaming", "Manifesting", "Conjuring", "Simmering",
+    ]
+
+    private static let completionVerbs = [
         "Baked", "Crunched", "Brewed", "Simmered",
         "Whipped up", "Churned", "Distilled", "Forged",
         "Crafted", "Cooked up", "Conjured", "Percolated",

@@ -153,7 +153,7 @@ struct ToolCallBlockView: View {
                 Divider().padding(.horizontal, 8)
 
                 ScrollView(.vertical, showsIndicators: true) {
-                    Text(content.detail)
+                    Text(truncatedDetail)
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(content.isError ? .red : .secondary)
                         .textSelection(.enabled)
@@ -162,10 +162,33 @@ struct ToolCallBlockView: View {
                         .padding(.vertical, 6)
                 }
                 .frame(maxHeight: 200)
+
+                if content.detail.count > Self.detailTruncateLimit {
+                    Button(action: {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(content.detail, forType: .string)
+                    }) {
+                        Text("Copied full output (\(content.detail.count) chars)")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.tertiary)
+                            .padding(.horizontal, 10)
+                            .padding(.bottom, 6)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
         .background(.quaternary.opacity(0.3))
         .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    private static let detailTruncateLimit = 20_000
+
+    private var truncatedDetail: String {
+        if content.detail.count > Self.detailTruncateLimit {
+            return String(content.detail.prefix(Self.detailTruncateLimit)) + "\n\n… (\(content.detail.count - Self.detailTruncateLimit) more chars, click to copy full output)"
+        }
+        return content.detail
     }
 
     private func toolIcon(_ tool: String) -> String {
@@ -197,8 +220,17 @@ struct ToolCallBlockView: View {
 struct ToolResultBlockView: View {
     let content: ToolResultContent
 
+    private static let truncateLimit = 20_000
+
+    private var truncatedOutput: String {
+        if content.output.count > Self.truncateLimit {
+            return String(content.output.prefix(Self.truncateLimit)) + "\n\n… (\(content.output.count - Self.truncateLimit) more chars)"
+        }
+        return content.output
+    }
+
     var body: some View {
-        Text(content.output)
+        Text(truncatedOutput)
             .font(.system(size: 11, design: .monospaced))
             .foregroundStyle(content.isError ? .red : .secondary)
             .textSelection(.enabled)

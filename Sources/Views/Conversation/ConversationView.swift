@@ -155,6 +155,12 @@ struct ConversationView: View {
                             CompactingIndicator()
                                 .padding(.vertical, 6)
                         }
+                        // Activity indicator: streaming (live timer) or completion (final duration)
+                        ActivityIndicator(
+                            isStreaming: conversation.isStreaming,
+                            startTime: conversation.isStreaming ? conversation.messages.last?.timestamp : nil,
+                            durationSeconds: conversation.messages.last?.durationSeconds
+                        )
                         // Invisible anchor at the very bottom (includes bottom padding)
                         Color.clear
                             .frame(height: 24)
@@ -180,6 +186,9 @@ struct ConversationView: View {
                         scrollToBottom(proxy)
                     }
                 }
+                .onChange(of: conversation.isStreaming) {
+                    scrollToBottom(proxy)
+                }
                 .onChange(of: conversation.isCompacting) {
                     scrollToBottom(proxy)
                 }
@@ -204,21 +213,23 @@ struct ConversationView: View {
             .padding(.horizontal, 24)
             .padding(.bottom, 8)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .textBackgroundColor))
     }
 
     // MARK: - Helpers
 
     /// Content length of the last block in the last message — triggers scroll on any streaming content.
+    /// Capped to avoid expensive .count on very large strings (only used as change signal).
     private var lastBlockContentLength: Int {
         guard let lastMsg = conversation.messages.last,
               let lastBlock = lastMsg.blocks.last else { return 0 }
         switch lastBlock {
-        case .text(let c): return c.text.count
-        case .thinking(let c): return c.text.count
-        case .toolCall(let c): return c.inputJson.count + c.detail.count
-        case .code(let c): return c.code.count
-        case .error(let c): return c.message.count
+        case .text(let c): return min(c.text.count, 50_000)
+        case .thinking(let c): return min(c.text.count, 50_000)
+        case .toolCall(let c): return min(c.inputJson.count, 50_000) + min(c.detail.count, 50_000)
+        case .code(let c): return min(c.code.count, 50_000)
+        case .error(let c): return min(c.message.count, 50_000)
         default: return 0
         }
     }
