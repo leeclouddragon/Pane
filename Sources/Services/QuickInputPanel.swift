@@ -1,4 +1,5 @@
 import AppKit
+import Carbon
 import SwiftUI
 
 // MARK: - State bridge
@@ -13,15 +14,18 @@ final class QuickInputState {
 // MARK: - Panel controller
 
 /// Global quick-input floating panel, summoned via Option+Space.
-/// Compact mode: reuses ComposerView (same as welcome page).
-/// Expanded mode: floating conversation pane with ConversationView.
+/// Compact mode: reuses ComposerView (same as welcome page), borderless.
+/// Expanded mode: floating conversation pane with system title bar (matches main window).
+/// Session persists across dismiss/re-show. Promote button moves conversation to main window.
 final class QuickInputPanel: NSObject {
     private var panel: NSPanel?
     private weak var paneState: PaneState?
-    private var globalMonitor: Any?
+    private var hotkeyRef: EventHotKeyRef?
+    private var eventHandlerRef: EventHandlerRef?
     private var localMonitor: Any?
     private var globalClickMonitor: Any?
     private var localClickMonitor: Any?
+    private var promoteAccessory: NSTitlebarAccessoryViewController?
 
     private let state = QuickInputState()
     private let settings: AppSettings = {
@@ -51,6 +55,7 @@ final class QuickInputPanel: NSObject {
         )
         panel.titlebarAppearsTransparent = true
         panel.titleVisibility = .hidden
+        panel.titlebarSeparatorStyle = .none
         panel.isFloatingPanel = true
         panel.level = .floating
         panel.becomesKeyOnlyIfNeeded = false
@@ -68,7 +73,8 @@ final class QuickInputPanel: NSObject {
             state: state,
             settings: settings,
             onExpand: { [weak self] in self?.expandToPane() },
-            onDismiss: { [weak self] in self?.dismiss() }
+            onDismiss: { [weak self] in self?.dismiss() },
+            onTitleChange: { [weak self] title in self?.panel?.title = title }
         )
         let hosting = NSHostingView(rootView: rootView)
         hosting.sizingOptions = []
@@ -77,25 +83,60 @@ final class QuickInputPanel: NSObject {
         self.panel = panel
     }
 
-    // MARK: - Hotkey
+    // MARK: - Hotkey (Carbon RegisterEventHotKey)
+
+    private static let hotkeyID = EventHotKeyID(signature: OSType(0x50414E45), // "PANE"
+                                                  id: 1)
 
     private func registerHotkey() {
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            self?.handleHotkey(event)
-        }
+        // Carbon global hotkey: Option+Space — works from any app, no Accessibility needed
+        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
+                                      eventKind: UInt32(kEventHotKeyPressed))
+        let selfPtr = Unmanaged.passUnretained(self).toOpaque()
+        InstallEventHandler(
+            GetApplicationEventTarget(),
+            { _, event, userData -> OSStatus in
+                guard let userData else { return OSStatus(eventNotHandledErr) }
+                let me = Unmanaged<QuickInputPanel>.fromOpaque(userData).takeUnretainedValue()
+                DispatchQueue.main.async { me.toggle() }
+                return noErr
+            },
+            1, &eventType, selfPtr, &eventHandlerRef
+        )
+
+        let hotkeyID = Self.hotkeyID
+        RegisterEventHotKey(
+            UInt32(kVK_Space),
+            UInt32(optionKey),
+            hotkeyID,
+            GetApplicationEventTarget(),
+            0,
+            &hotkeyRef
+        )
+
+        // Local monitor: Option+Space toggle + Esc/Cmd+W dismiss
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            if self?.handleHotkey(event) == true { return nil }
+            guard let self else { return event }
+            // Option+Space toggle (local events aren't caught by Carbon handler)
+            if event.keyCode == 49,
+               event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .option {
+                DispatchQueue.main.async { self.toggle() }
+                return nil
+            }
+            guard self.panel?.isVisible == true else { return event }
+            // Esc dismisses the panel
+            if event.keyCode == 53 {
+                DispatchQueue.main.async { self.dismiss() }
+                return nil
+            }
+            // Cmd+W dismisses the panel
+            if event.keyCode == 13,
+               event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command {
+                DispatchQueue.main.async { self.dismiss() }
+                return nil
+            }
             return event
         }
-    }
-
-    @discardableResult
-    private func handleHotkey(_ event: NSEvent) -> Bool {
-        guard event.keyCode == 49,
-              event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .option
-        else { return false }
-        DispatchQueue.main.async { [weak self] in self?.toggle() }
-        return true
     }
 
     // MARK: - Show / Dismiss / Toggle
@@ -111,25 +152,32 @@ final class QuickInputPanel: NSObject {
     private func show() {
         guard let panel, let paneState else { return }
 
-        // Always start fresh — new conversation each time
-        state.conversation?.stop()
+        if state.isExpanded, state.conversation != nil {
+            // Re-show existing expanded conversation
+            applyExpandedStyle(panel)
+            panel.title = state.conversation?.displayTitle ?? "Pane"
+        } else {
+            // Fresh compact session
+            state.conversation?.stop()
 
-        let conv = ConversationState()
-        conv.providerState = paneState.providerState
-        conv.activeProviderID = paneState.providerState.activeProviderID
-        if let focused = paneState.activeConversation {
-            conv.workingDirectory = focused.workingDirectory
+            let conv = ConversationState()
+            conv.providerState = paneState.providerState
+            conv.activeProviderID = paneState.providerState.activeProviderID
+            if let focused = paneState.activeConversation {
+                conv.workingDirectory = focused.workingDirectory
+            }
+
+            let ps = PaneState(providerState: paneState.providerState)
+            ps.focusedConversation = conv
+
+            state.conversation = conv
+            state.floatingPaneState = ps
+            state.isExpanded = false
+
+            applyCompactStyle(panel)
+            panel.setFrame(compactFrame(), display: true)
         }
 
-        let ps = PaneState(providerState: paneState.providerState)
-        ps.focusedConversation = conv
-
-        state.conversation = conv
-        state.floatingPaneState = ps
-        state.isExpanded = false
-
-        panel.styleMask.remove(.resizable)
-        panel.setFrame(compactFrame(), display: true)
         panel.orderFrontRegardless()
         panel.makeKey()
         NSApp.activate()
@@ -143,11 +191,12 @@ final class QuickInputPanel: NSObject {
 
         panel?.orderOut(nil)
 
-        // Always reset — new session next time
-        state.conversation?.stop()
-        state.conversation = nil
-        state.floatingPaneState = nil
-        state.isExpanded = false
+        // Compact (no conversation started): clean up
+        if !state.isExpanded {
+            state.conversation?.stop()
+            state.conversation = nil
+            state.floatingPaneState = nil
+        }
 
         // Restore focus to main window
         if let mainWindow = NSApp.windows.first(where: { $0 !== panel && $0.canBecomeKey }) {
@@ -161,9 +210,87 @@ final class QuickInputPanel: NSObject {
         state.isExpanded = true
 
         guard let panel else { return }
-        panel.styleMask.insert(.resizable)
+
+        // Switch to native system title bar (matches main Pane window)
+        applyExpandedStyle(panel)
+        panel.title = state.conversation?.displayTitle ?? "Pane"
+
         let target = expandedFrame()
         panel.setFrame(target, display: true, animate: true)
+    }
+
+    // MARK: - Promote to main window
+
+    @objc private func promoteToMainWindow() {
+        guard let conversation = state.conversation, let paneState else { return }
+
+        // Move conversation into the main pane tree
+        paneState.adoptConversation(conversation)
+
+        // Clear quick panel state completely
+        state.conversation = nil
+        state.floatingPaneState = nil
+        state.isExpanded = false
+
+        // Hide panel, restore compact style for next use
+        savePosition()
+        removeClickOutsideMonitors()
+        panel?.orderOut(nil)
+        if let panel { applyCompactStyle(panel) }
+
+        // Focus main window
+        if let mainWindow = NSApp.windows.first(where: { $0 !== panel && $0.canBecomeKey }) {
+            mainWindow.makeKeyAndOrderFront(nil)
+        }
+    }
+
+    // MARK: - Panel style switching
+
+    private func applyCompactStyle(_ panel: NSPanel) {
+        panel.styleMask.insert(.fullSizeContentView)
+        panel.styleMask.remove(.resizable)
+        panel.titlebarAppearsTransparent = true
+        panel.titleVisibility = .hidden
+        panel.titlebarSeparatorStyle = .none
+        panel.backgroundColor = .clear
+        removePromoteButton()
+    }
+
+    private func applyExpandedStyle(_ panel: NSPanel) {
+        panel.styleMask.remove(.fullSizeContentView)
+        panel.styleMask.insert(.resizable)
+        panel.titlebarAppearsTransparent = false
+        panel.titleVisibility = .visible
+        panel.titlebarSeparatorStyle = .none
+        panel.backgroundColor = .windowBackgroundColor
+        addPromoteButton()
+    }
+
+    // MARK: - Titlebar promote button
+
+    private func addPromoteButton() {
+        guard let panel, promoteAccessory == nil else { return }
+        let vc = NSTitlebarAccessoryViewController()
+        let btn = NSButton(frame: NSRect(x: 0, y: 0, width: 28, height: 22))
+        btn.image = NSImage(systemSymbolName: "arrow.up.left.and.arrow.down.right",
+                            accessibilityDescription: "Move to main window")
+        btn.symbolConfiguration = .init(pointSize: 11, weight: .medium)
+        btn.imageScaling = .scaleProportionallyDown
+        btn.isBordered = false
+        btn.target = self
+        btn.action = #selector(promoteToMainWindow)
+        vc.view = btn
+        vc.layoutAttribute = .trailing
+        panel.addTitlebarAccessoryViewController(vc)
+        promoteAccessory = vc
+    }
+
+    private func removePromoteButton() {
+        guard let panel, let vc = promoteAccessory,
+              let idx = panel.titlebarAccessoryViewControllers.firstIndex(of: vc)
+        else { return }
+        panel.removeTitlebarAccessoryViewController(at: idx)
+        promoteAccessory = nil
     }
 
     // MARK: - Position memory
@@ -242,20 +369,23 @@ private struct QuickInputRootView: View {
     let settings: AppSettings
     var onExpand: () -> Void
     var onDismiss: () -> Void
+    var onTitleChange: (String) -> Void
 
     var body: some View {
         Group {
             if let conversation = state.conversation {
                 if state.isExpanded, let ps = state.floatingPaneState {
-                    FloatingPaneView(conversation: conversation, onDismiss: onDismiss)
-                        .environment(ps)
-                        .environment(settings)
+                    FloatingPaneView(
+                        conversation: conversation,
+                        onTitleChange: onTitleChange
+                    )
+                    .environment(ps)
+                    .environment(settings)
                 } else {
                     // Compact: reuse ComposerView (same as welcome page)
                     ComposerView(conversation: conversation, isWelcome: true, isFocused: true)
                         .shadow(color: .black.opacity(0.15), radius: 20, y: 8)
                         .padding(16)
-                        .background(EscapeKeyHandler(onEscape: onDismiss))
                         .onChange(of: conversation.messages.count) {
                             if !conversation.messages.isEmpty {
                                 onExpand()
@@ -272,56 +402,21 @@ private struct QuickInputRootView: View {
 
 private struct FloatingPaneView: View {
     @Bindable var conversation: ConversationState
-    var onDismiss: () -> Void
+    var onTitleChange: (String) -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Thin session name bar (traffic lights handle close)
-            Text(conversation.title.isEmpty ? "New Chat" : conversation.title)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity)
-                .frame(height: 28)
-                .padding(.leading, 68) // clear traffic light zone
-
-            Divider()
-
-            ConversationView(conversation: conversation)
-        }
-        .background(Color(nsColor: .textBackgroundColor))
-        .background(EscapeKeyHandler(onEscape: onDismiss))
-    }
-}
-
-// MARK: - Escape key handler
-
-private struct EscapeKeyHandler: NSViewRepresentable {
-    var onEscape: () -> Void
-
-    func makeNSView(context: Context) -> NSView {
-        let view = KeyHandlerView()
-        view.onEscape = onEscape
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        if let view = nsView as? KeyHandlerView {
-            view.onEscape = onEscape
-        }
-    }
-
-    private class KeyHandlerView: NSView {
-        var onEscape: (() -> Void)?
-
-        override var acceptsFirstResponder: Bool { true }
-
-        override func keyDown(with event: NSEvent) {
-            if event.keyCode == 53 { // Esc
-                onEscape?()
-            } else {
-                super.keyDown(with: event)
+        ConversationView(conversation: conversation)
+            .background(Color(nsColor: .textBackgroundColor))
+            .onChange(of: conversation.displayTitle) {
+                onTitleChange(panelTitle)
             }
-        }
+            .onAppear {
+                onTitleChange(panelTitle)
+            }
+    }
+
+    private var panelTitle: String {
+        let t = conversation.displayTitle
+        return t.isEmpty ? "Pane" : t
     }
 }

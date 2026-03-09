@@ -405,23 +405,26 @@ final class ClaudeProcessManager {
                     debugLog("stdout: \(line.prefix(200))")
                 }
             }
-            if !line.isEmpty, let event = adapter.parseLine(line) {
-                // Capture session ID from init
-                if case .systemInit(let info) = event {
-                    DispatchQueue.main.async { [weak self] in
-                        self?.sessionId = info.sessionId
+            if !line.isEmpty {
+                let events = adapter.parseLine(line)
+                for event in events {
+                    // Capture session ID from init
+                    if case .systemInit(let info) = event {
+                        DispatchQueue.main.async { [weak self] in
+                            self?.sessionId = info.sessionId
+                        }
                     }
-                }
-                if case .result = event {
-                    resultReceived = true
-                    // Reset isRunning BEFORE delivering the event, so that
-                    // sendNextPending() → startRequest() → send() sees isRunning=false.
-                    DispatchQueue.main.async { [weak self] in
-                        self?.isRunning = false
+                    if case .result = event {
+                        resultReceived = true
+                        // Reset isRunning BEFORE delivering the event, so that
+                        // sendNextPending() → startRequest() → send() sees isRunning=false.
+                        DispatchQueue.main.async { [weak self] in
+                            self?.isRunning = false
+                        }
                     }
-                }
-                DispatchQueue.main.async { [weak self] in
-                    self?.onEvent?(event)
+                    DispatchQueue.main.async { [weak self] in
+                        self?.onEvent?(event)
+                    }
                 }
             }
         }

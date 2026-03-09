@@ -3,6 +3,7 @@ import SwiftUI
 /// Recursive pane renderer. Leaf → ConversationView, split → two panes with divider.
 struct PaneContainer: View {
     @Environment(PaneState.self) private var paneState
+    @Environment(PaneDragState.self) private var dragState
     let node: PaneNode
 
     var body: some View {
@@ -20,6 +21,11 @@ struct PaneContainer: View {
             .simultaneousGesture(
                 TapGesture().onEnded { paneState.focusedConversation = state }
             )
+            .overlay {
+                if dragState.isDragging {
+                    DropZoneDetector(conversation: state)
+                }
+            }
 
         case .split(let direction, let ratio, let first, let second):
             PaneSplit(direction: direction, ratio: ratio) {
@@ -41,6 +47,114 @@ struct PaneContainer: View {
         }
     }
 }
+
+// MARK: - Drop Zone Detection & Overlay
+
+/// Detects whether the drag cursor is over this pane and computes the drop zone.
+/// Renders the visual drop zone indicator.
+private struct DropZoneDetector: View {
+    let conversation: ConversationState
+    @Environment(PaneDragState.self) private var dragState
+
+    private var isDragSource: Bool {
+        dragState.draggedPane === conversation
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            let frame = geo.frame(in: .named("paneRoot"))
+            let isHovered = !isDragSource && frame.contains(dragState.cursorLocation)
+            let zone: DropZone? = isHovered
+                ? dropZone(
+                    at: CGPoint(
+                        x: dragState.cursorLocation.x - frame.minX,
+                        y: dragState.cursorLocation.y - frame.minY
+                    ),
+                    in: frame.size
+                )
+                : nil
+
+            DropZoneOverlay(zone: zone, isSource: isDragSource)
+                .onChange(of: isHovered, initial: true) { _, hovered in
+                    if hovered {
+                        dragState.hoverTarget = conversation
+                    } else if dragState.hoverTarget === conversation {
+                        dragState.hoverTarget = nil
+                        dragState.hoverZone = nil
+                    }
+                }
+                .onChange(of: zone, initial: true) { _, newZone in
+                    if isHovered {
+                        dragState.hoverZone = newZone
+                    }
+                }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+/// Renders a semi-transparent highlight on the target drop zone edge.
+private struct DropZoneOverlay: View {
+    let zone: DropZone?
+    let isSource: Bool
+
+    var body: some View {
+        Group {
+            if isSource {
+                Color.black.opacity(0.3)
+            } else if let zone {
+                dropHighlight(zone: zone)
+            } else {
+                Color.clear
+            }
+        }
+        .animation(.easeOut(duration: 0.12), value: zone)
+    }
+
+    @ViewBuilder
+    private func dropHighlight(zone: DropZone) -> some View {
+        GeometryReader { geo in
+            let fill = Color.accentColor.opacity(0.12)
+            let border = Color.accentColor.opacity(0.45)
+
+            switch zone {
+            case .left:
+                HStack(spacing: 0) {
+                    zoneRect(fill: fill, border: border)
+                        .frame(width: geo.size.width * 0.5)
+                    Spacer(minLength: 0)
+                }
+            case .right:
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    zoneRect(fill: fill, border: border)
+                        .frame(width: geo.size.width * 0.5)
+                }
+            case .top:
+                VStack(spacing: 0) {
+                    zoneRect(fill: fill, border: border)
+                        .frame(height: geo.size.height * 0.5)
+                    Spacer(minLength: 0)
+                }
+            case .bottom:
+                VStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    zoneRect(fill: fill, border: border)
+                        .frame(height: geo.size.height * 0.5)
+                }
+            }
+        }
+    }
+
+    private func zoneRect(fill: Color, border: Color) -> some View {
+        RoundedRectangle(cornerRadius: 4)
+            .fill(fill)
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke(border, lineWidth: 1.5))
+            .padding(4)
+    }
+}
+
+// MARK: - PaneSplit (unchanged)
 
 /// Resizable split between two panes.
 /// Uses deferred resize: during drag only a ghost divider moves; pane content
@@ -125,11 +239,14 @@ struct PaneSplit<First: View, Second: View>: View {
     }
 }
 
+// MARK: - PaneTitleBar (with drag gesture)
+
 /// Per-pane title bar, visible only in multi-pane mode.
-/// Shows conversation title + "+" split button (split right).
+/// Shows conversation title + "+" split button. Drag to move pane.
 private struct PaneTitleBar: View {
     let conversation: ConversationState
     @Environment(PaneState.self) private var paneState
+    @Environment(PaneDragState.self) private var dragState
 
     var body: some View {
         HStack(spacing: 4) {
@@ -159,6 +276,27 @@ private struct PaneTitleBar: View {
         .frame(height: 28)
         .padding(.horizontal, 8)
         .background(Color(nsColor: .windowBackgroundColor).opacity(0.8))
+        .gesture(paneDragGesture)
+        .opacity(dragState.draggedPane === conversation ? 0.4 : 1.0)
+    }
+
+    private var paneDragGesture: some Gesture {
+        DragGesture(minimumDistance: 3, coordinateSpace: .named("paneRoot"))
+            .onChanged { value in
+                guard paneState.paneCount > 1 else { return }
+                if !dragState.isDragging {
+                    dragState.beginDrag(pane: conversation, origin: value.startLocation)
+                }
+                dragState.updateDrag(pane: conversation, location: value.location)
+            }
+            .onEnded { _ in
+                guard dragState.isDragging else { return }
+                if let (source, target, zone) = dragState.endDrag() {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        paneState.movePane(source: source, to: target, zone: zone)
+                    }
+                }
+            }
     }
 
     private var isFocused: Bool {
@@ -170,6 +308,8 @@ private struct PaneTitleBar: View {
         return t.isEmpty ? "New Thread" : t
     }
 }
+
+// MARK: - PaneDivider (unchanged)
 
 /// Draggable divider between panes.
 struct PaneDivider: View {

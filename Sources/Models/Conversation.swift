@@ -368,6 +368,16 @@ final class ConversationState: Identifiable {
         }
     }
 
+    /// Mark all still-running tool calls as complete in the given message.
+    private func completeOpenToolCalls(at msgIdx: Int) {
+        for blockIdx in 0..<messages[msgIdx].blocks.count {
+            if case .toolCall(var content) = messages[msgIdx].blocks[blockIdx], content.isRunning {
+                content.isRunning = false
+                messages[msgIdx].blocks[blockIdx] = .toolCall(content)
+            }
+        }
+    }
+
     private func handleEvent(_ event: ClaudeEvent, generation: Int) {
         // Discard events from a previous (stale) process
         guard generation == eventGeneration else { return }
@@ -478,6 +488,7 @@ final class ConversationState: Identifiable {
             }
 
             completeOpenThinkingBlocks(at: idx)
+            completeOpenToolCalls(at: idx)
             isStreaming = false
             isCompacting = false
             // Record response duration on the assistant message

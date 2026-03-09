@@ -73,6 +73,7 @@ final class PaneConfigManager {
             category: .bedrock,
             env: [
                 "CLAUDE_CODE_USE_BEDROCK": "1",
+                "ANTHROPIC_MODEL": "global.anthropic.claude-opus-4-6-v1",
                 "CLAUDE_MODEL_ID": "global.anthropic.claude-opus-4-6-v1",
                 "AWS_PROFILE": "nemovideo",
                 "AWS_REGION": "us-east-1",

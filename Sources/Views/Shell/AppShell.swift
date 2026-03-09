@@ -4,14 +4,17 @@ import SwiftUI
 struct AppShell: View {
     @Environment(PaneState.self) private var paneState
     @Environment(AppSettings.self) private var settings
+    @State private var dragState = PaneDragState()
 
     var body: some View {
         GeometryReader { geo in
             let zoom = settings.zoomLevel
             PaneContainer(node: paneState.root)
+                .coordinateSpace(name: "paneRoot")
                 .frame(width: geo.size.width / zoom, height: geo.size.height / zoom)
                 .scaleEffect(zoom, anchor: .topLeading)
         }
+        .environment(dragState)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
         .navigationTitle(windowTitle)

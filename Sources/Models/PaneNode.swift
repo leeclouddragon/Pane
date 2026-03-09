@@ -98,6 +98,59 @@ final class PaneState {
         closePane(pane)
     }
 
+    /// Adopt an external conversation into the main pane tree.
+    /// If the focused pane is empty (welcome state), replace it; otherwise split.
+    func adoptConversation(_ conversation: ConversationState) {
+        conversation.providerState = providerState
+        if let focused = focusedConversation, focused.messages.isEmpty {
+            replaceNode(containing: focused, with: .conversation(conversation))
+        } else if let focused = focusedConversation {
+            replaceNode(
+                containing: focused,
+                with: .split(
+                    direction: .horizontal,
+                    ratio: 0.5,
+                    first: .conversation(focused),
+                    second: .conversation(conversation)
+                )
+            )
+            focused.scrollNudge += 1
+        }
+        focusedConversation = conversation
+    }
+
+    /// Move a pane to a new position relative to a target pane.
+    /// Removes source from the tree, then wraps target in a new split with source at the given zone.
+    func movePane(source: ConversationState, to target: ConversationState, zone: DropZone) {
+        guard source !== target, paneCount > 1 else { return }
+
+        // Step 1: Remove source from tree
+        guard let pruned = removeNode(containing: source, from: root) else { return }
+
+        // Step 2: Determine split direction and ordering
+        let direction: Axis
+        let sourceIsFirst: Bool
+        switch zone {
+        case .left:   direction = .horizontal; sourceIsFirst = true
+        case .right:  direction = .horizontal; sourceIsFirst = false
+        case .top:    direction = .vertical;   sourceIsFirst = true
+        case .bottom: direction = .vertical;   sourceIsFirst = false
+        }
+
+        let sourceNode = PaneNode.conversation(source)
+        let targetNode = PaneNode.conversation(target)
+        let newSplit: PaneNode = sourceIsFirst
+            ? .split(direction: direction, ratio: 0.5, first: sourceNode, second: targetNode)
+            : .split(direction: direction, ratio: 0.5, first: targetNode, second: sourceNode)
+
+        // Step 3: Replace target in the pruned tree with the new split
+        root = replaceNode(containing: target, in: pruned, with: newSplit)
+
+        // Step 4: Focus follows the dragged pane
+        focusedConversation = source
+        source.scrollNudge += 1
+    }
+
     /// Reset the focused pane to a fresh welcome conversation.
     func newThread() {
         guard let pane = focusedConversation else { return }

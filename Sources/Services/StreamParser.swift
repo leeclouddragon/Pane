@@ -44,11 +44,11 @@ struct ResultInfo {
 
 /// Parses NDJSON lines from claude CLI stdout into ClaudeEvents.
 struct StreamParser {
-    static func parse(line: String) -> ClaudeEvent? {
+    static func parse(line: String) -> [ClaudeEvent] {
         guard let data = line.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = json["type"] as? String
-        else { return nil }
+        else { return [] }
 
         switch type {
 
@@ -56,21 +56,24 @@ struct StreamParser {
         case "system":
             let subtype = json["subtype"] as? String ?? ""
             if subtype == "status", json["status"] as? String == "compacting" {
-                return .compacting
+                return [.compacting]
             }
             if subtype == "compact_boundary" || subtype == "microcompact_boundary" {
-                return .compactDone
+                return [.compactDone]
             }
             let sessionId = json["session_id"] as? String ?? ""
             let model = json["model"] as? String ?? ""
             let cwd = json["cwd"] as? String ?? ""
             let tools = json["tools"] as? [String] ?? []
             let permissionMode = json["permissionMode"] as? String ?? ""
-            return .systemInit(SessionInfo(sessionId: sessionId, model: model, cwd: cwd, tools: tools, permissionMode: permissionMode))
+            return [.systemInit(SessionInfo(sessionId: sessionId, model: model, cwd: cwd, tools: tools, permissionMode: permissionMode))]
 
         // streaming events
         case "stream_event":
-            return parseStreamEvent(json)
+            if let event = parseStreamEvent(json) {
+                return [event]
+            }
+            return []
 
         // full assistant message (emitted after all content blocks)
         case "assistant":
@@ -81,9 +84,9 @@ struct StreamParser {
                     return block["text"] as? String
                 }.joined()
                 let model = message["model"] as? String ?? ""
-                return .assistantMessage(fullText: fullText, model: model)
+                return [.assistantMessage(fullText: fullText, model: model)]
             }
-            return .unknown(type: type, raw: line)
+            return [.unknown(type: type, raw: line)]
 
         // final result
         case "result":
@@ -113,7 +116,7 @@ struct StreamParser {
                 contextUsedPercent = cw["used_percentage"] as? Int
                 contextWindowSize = cw["context_window_size"] as? Int
             }
-            return .result(ResultInfo(
+            return [.result(ResultInfo(
                 sessionId: sessionId,
                 result: result,
                 isError: isError,
@@ -125,7 +128,7 @@ struct StreamParser {
                 cacheCreationTokens: cacheCreationTokens,
                 contextUsedPercent: contextUsedPercent,
                 contextWindowSize: contextWindowSize
-            ))
+            ))]
 
         // tool results (from --include-partial-messages)
         case "tool_result":
@@ -137,13 +140,14 @@ struct StreamParser {
             } else if let blocks = json["content"] as? [[String: Any]] {
                 content = blocks.compactMap { $0["text"] as? String }.joined(separator: "\n")
             }
-            return .toolResult(toolUseId: toolUseId, content: content, isError: isError)
+            return [.toolResult(toolUseId: toolUseId, content: content, isError: isError)]
 
         // user message containing tool_result blocks (actual format from CLI)
+        // A single user message may contain multiple tool_result blocks (parallel tool calls)
         case "user":
             if let message = json["message"] as? [String: Any],
                let contentBlocks = message["content"] as? [[String: Any]] {
-                // Return the first tool_result found; handleEvent will match by toolUseId
+                var events: [ClaudeEvent] = []
                 for block in contentBlocks {
                     if block["type"] as? String == "tool_result" {
                         let toolUseId = block["tool_use_id"] as? String ?? ""
@@ -154,14 +158,15 @@ struct StreamParser {
                         } else if let parts = block["content"] as? [[String: Any]] {
                             content = parts.compactMap { $0["text"] as? String }.joined(separator: "\n")
                         }
-                        return .toolResult(toolUseId: toolUseId, content: content, isError: isError)
+                        events.append(.toolResult(toolUseId: toolUseId, content: content, isError: isError))
                     }
                 }
+                if !events.isEmpty { return events }
             }
-            return .unknown(type: type, raw: line)
+            return [.unknown(type: type, raw: line)]
 
         default:
-            return .unknown(type: type, raw: line)
+            return [.unknown(type: type, raw: line)]
         }
     }
 

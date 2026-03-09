@@ -575,6 +575,7 @@ struct ErrorBlockView: View {
                 .foregroundStyle(.red)
             Text(content.message)
                 .font(.system(size: 12))
+                .textSelection(.enabled)
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)

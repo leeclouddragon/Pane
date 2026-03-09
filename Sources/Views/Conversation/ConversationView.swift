@@ -204,6 +204,7 @@ struct ConversationView: View {
                     .padding(.top, 16)
                 }
                 .scrollContentBackground(.hidden)
+                .background(ScrollViewBorderHider())
                 .defaultScrollAnchor(.bottom)
                 .onChange(of: conversation.messages.count) {
                     scrollToBottom(proxy)
@@ -362,4 +363,24 @@ struct ConversationView: View {
         if days < 7 { return "\(days)d ago" }
         return "\(days / 7)w ago"
     }
+}
+
+/// Removes the default border from the enclosing NSScrollView.
+private struct ScrollViewBorderHider: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            var current: NSView? = view
+            while let v = current {
+                if let scrollView = v as? NSScrollView {
+                    scrollView.borderType = .noBorder
+                    break
+                }
+                current = v.superview
+            }
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
 }

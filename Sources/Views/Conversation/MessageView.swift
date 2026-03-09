@@ -58,6 +58,7 @@ struct MessageView: View {
                 MessageDuration(seconds: seconds)
             }
         }
+        .textSelection(.enabled)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

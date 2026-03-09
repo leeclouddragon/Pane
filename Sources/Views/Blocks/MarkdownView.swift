@@ -87,6 +87,7 @@ struct MarkdownView: View {
                 ForEach(Array(headers.enumerated()), id: \.offset) { _, header in
                     Text(header.trimmingCharacters(in: .whitespaces))
                         .font(.system(size: 12, weight: .semibold))
+                        .textSelection(.enabled)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 6)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -100,6 +101,7 @@ struct MarkdownView: View {
                     ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
                         Text(cell.trimmingCharacters(in: .whitespaces))
                             .font(.system(size: 12))
+                            .textSelection(.enabled)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 5)
                             .frame(maxWidth: .infinity, alignment: .leading)

@@ -35,7 +35,7 @@ struct StreamJSONAdapter: CLIProtocolAdapter {
         return data
     }
 
-    func parseLine(_ line: String) -> ClaudeEvent? {
+    func parseLine(_ line: String) -> [ClaudeEvent] {
         StreamParser.parse(line: line)
     }
 }

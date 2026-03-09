@@ -1,0 +1,40 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg-dark" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#2D2D2D" />
+      <stop offset="100%" stop-color="#1A1A1A" />
+    </linearGradient>
+    <linearGradient id="orange-accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#E87D5D" />
+      <stop offset="100%" stop-color="#D4563B" />
+    </linearGradient>
+    <filter id="glow">
+      <feDropShadow dx="0" dy="0" stdDeviation="6" flood-color="#E87D5D" flood-opacity="0.6" />
+    </filter>
+  </defs>
+
+  <!-- App Squircle -->
+  <rect x="32" y="32" width="448" height="448" rx="100" fill="url(#bg-dark)" />
+  <rect x="32" y="32" width="448" height="448" rx="100" fill="none" stroke="#444" stroke-width="2" />
+
+  <!-- Window chrome dots -->
+  <circle cx="70" cy="70" r="6" fill="#FF5F56" />
+  <circle cx="90" cy="70" r="6" fill="#FFBD2E" />
+  <circle cx="110" cy="70" r="6" fill="#27C93F" />
+
+  <!-- Letter P made of terminal panes -->
+  <!-- Left stem: orange cursor/sidebar -->
+  <rect x="170" y="140" width="40" height="232" rx="12" fill="url(#orange-accent)" filter="url(#glow)" />
+  
+  <!-- Top loop: dark glass pane with border -->
+  <rect x="220" y="140" width="130" height="130" rx="20" fill="#2A2A2A" stroke="#444" stroke-width="6" />
+  
+  <!-- Code lines inside the pane -->
+  <rect x="240" y="170" width="40" height="10" rx="5" fill="#666" />
+  <rect x="240" y="195" width="70" height="10" rx="5" fill="#888" />
+  <rect x="240" y="220" width="50" height="10" rx="5" fill="#666" />
+  
+  <!-- Terminal Prompt inside loop to enforce the P connection -->
+  <path d="M 270 250 l 12 12 l -12 12" stroke="url(#orange-accent)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none" filter="url(#glow)" />
+  <line x1="295" y1="262" x2="320" y2="262" stroke="url(#orange-accent)" stroke-width="6" stroke-linecap="round" fill="none" filter="url(#glow)" />
+</svg>
