@@ -3,6 +3,7 @@ import SwiftUI
 /// Renders a single message. User = right-aligned compact card, Assistant = left-aligned plain text.
 struct MessageView: View {
     let message: Message
+    var isStreaming: Bool = false
 
     var body: some View {
         Group {
@@ -51,8 +52,8 @@ struct MessageView: View {
 
     private var assistantContent: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(message.blocks) { block in
-                ContentBlockView(block: block)
+            ForEach(Array(message.blocks.enumerated()), id: \.element.id) { index, block in
+                ContentBlockView(block: block, isStreaming: isStreaming && index == message.blocks.count - 1)
             }
             if let seconds = message.durationSeconds {
                 MessageDuration(seconds: seconds)

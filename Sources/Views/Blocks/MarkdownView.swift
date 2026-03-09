@@ -4,22 +4,63 @@ import SwiftUI
 struct MarkdownView: View {
     let text: String
     var compact: Bool = false
+    var isStreaming: Bool = false
 
     @State private var blocks: [MarkdownBlock] = []
+    @State private var lastParseTime: Date = .distantPast
+    @State private var lastParsedLength: Int = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                renderBlock(block)
+            ForEach(Array(blocks.enumerated()), id: \.offset) { index, block in
+                if isStreaming && index == blocks.count - 1,
+                   case .paragraph(let paragraphText) = block {
+                    Text(paragraphText)
+                        .font(.system(size: 13))
+                        .lineSpacing(4)
+                        .textSelection(.enabled)
+                } else {
+                    renderBlock(block)
+                }
             }
         }
         .if(!compact) { $0.frame(maxWidth: .infinity, alignment: .leading) }
-        .onChange(of: text, initial: true) { blocks = parseBlocks() }
+        .onChange(of: text, initial: true) {
+            if isStreaming {
+                let now = Date()
+                if blocks.isEmpty || now.timeIntervalSince(lastParseTime) > 0.3 {
+                    blocks = parseBlocks()
+                    lastParseTime = now
+                    lastParsedLength = text.count
+                } else {
+                    // Fast path: append new text to the last paragraph without re-parsing.
+                    let delta = String(text.dropFirst(lastParsedLength))
+                    lastParsedLength = text.count
+                    if delta.contains("```") {
+                        // Code fence detected — must full-parse
+                        blocks = parseBlocks()
+                        lastParseTime = now
+                    } else if !blocks.isEmpty, case .paragraph(let existing) = blocks.last {
+                        blocks[blocks.count - 1] = .paragraph(existing + delta)
+                    } else {
+                        let trimmed = delta.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty { blocks.append(.paragraph(trimmed)) }
+                    }
+                }
+            } else {
+                blocks = parseBlocks()
+                lastParseTime = .now
+                lastParsedLength = text.count
+            }
+        }
+        .onChange(of: isStreaming) { _, streaming in
+            if !streaming { blocks = parseBlocks() }
+        }
     }
 
     // MARK: - Block types
 
-    private enum MarkdownBlock {
+    private enum MarkdownBlock: Equatable {
         case paragraph(String)
         case codeBlock(language: String?, code: String)
         case horizontalRule
@@ -32,17 +73,7 @@ struct MarkdownView: View {
     private func renderBlock(_ block: MarkdownBlock) -> some View {
         switch block {
         case .paragraph(let text):
-            if let attributed = try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
-                Text(attributed)
-                    .font(.system(size: 13))
-                    .lineSpacing(4)
-                    .textSelection(.enabled)
-            } else {
-                Text(text)
-                    .font(.system(size: 13))
-                    .lineSpacing(4)
-                    .textSelection(.enabled)
-            }
+            ParagraphBlockView(text: text).equatable()
 
         case .codeBlock(let language, let code):
             VStack(alignment: .leading, spacing: 0) {
@@ -210,5 +241,28 @@ struct MarkdownView: View {
         }
 
         return .table(headers: headers, rows: rows)
+    }
+}
+
+/// Paragraph view that skips body re-evaluation when text hasn't changed.
+private struct ParagraphBlockView: View, Equatable {
+    let text: String
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.text == rhs.text
+    }
+
+    var body: some View {
+        if let attributed = try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
+            Text(attributed)
+                .font(.system(size: 13))
+                .lineSpacing(4)
+                .textSelection(.enabled)
+        } else {
+            Text(text)
+                .font(.system(size: 13))
+                .lineSpacing(4)
+                .textSelection(.enabled)
+        }
     }
 }

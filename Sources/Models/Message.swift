@@ -103,6 +103,16 @@ struct ToolCallContent: Identifiable {
                let q = first["question"] as? String {
                 summary = String(q.prefix(80))
             }
+        case "todowrite":
+            if let todos = obj["todos"] as? [[String: Any]] {
+                let total = todos.count
+                let open = todos.filter { ($0["status"] as? String) != "completed" }.count
+                if open == 0 {
+                    summary = "(\(total) tasks, all done)"
+                } else {
+                    summary = "(\(total) tasks, \(open) open)"
+                }
+            }
         case "webfetch":
             summary = obj["url"] as? String ?? summary
         case "notebookedit":

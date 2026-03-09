@@ -4,11 +4,12 @@ import SwiftUI
 struct ContentBlockView: View {
     let block: ContentBlock
     var compact: Bool = false
+    var isStreaming: Bool = false
 
     var body: some View {
         switch block {
         case .text(let content):
-            TextBlockView(content: content, compact: compact)
+            TextBlockView(content: content, compact: compact, isStreaming: isStreaming)
         case .code(let content):
             CodeBlockView(content: content)
         case .toolCall(let content):
@@ -34,9 +35,10 @@ struct ContentBlockView: View {
 struct TextBlockView: View {
     let content: TextContent
     var compact: Bool = false
+    var isStreaming: Bool = false
 
     var body: some View {
-        MarkdownView(text: content.text, compact: compact)
+        MarkdownView(text: content.text, compact: compact, isStreaming: isStreaming)
     }
 }
 
@@ -104,8 +106,14 @@ struct ToolCallBlockView: View {
         ["edit", "write", "bash"].contains(content.tool.lowercased())
     }
 
+    private var isTodoWrite: Bool {
+        content.tool.lowercased() == "todowrite"
+    }
+
     var body: some View {
-        if isReviewable {
+        if isTodoWrite {
+            todoWriteView
+        } else if isReviewable {
             reviewView
         } else {
             researchView
@@ -172,6 +180,91 @@ struct ToolCallBlockView: View {
                         .foregroundStyle(.quaternary)
                         .padding(.leading, 4)
                 }
+            }
+        }
+    }
+
+    // MARK: - TodoWrite: task list with status indicators
+
+    private struct TodoItem {
+        let content: String
+        let status: String // "pending", "in_progress", "completed"
+
+        var icon: String {
+            switch status {
+            case "completed": return "checkmark.circle.fill"
+            case "in_progress": return "circle.lefthalf.filled"
+            default: return "circle"
+            }
+        }
+
+        var color: Color {
+            switch status {
+            case "completed": return .green
+            case "in_progress": return .orange
+            default: return .secondary
+            }
+        }
+    }
+
+    private var parsedTodos: [TodoItem] {
+        guard let data = content.inputJson.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let todos = obj["todos"] as? [[String: Any]]
+        else { return [] }
+        return todos.map { todo in
+            TodoItem(
+                content: todo["content"] as? String ?? "",
+                status: todo["status"] as? String ?? "pending"
+            )
+        }
+    }
+
+    private var todoWriteView: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header
+            HStack(spacing: 5) {
+                if content.isRunning {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .frame(width: 12, height: 12)
+                }
+
+                Text(content.tool)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.tertiary)
+
+                if !content.summary.isEmpty {
+                    Text(content.summary)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+            }
+            .padding(.vertical, 4)
+
+            // Todo list
+            let todos = parsedTodos
+            if !todos.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(Array(todos.enumerated()), id: \.offset) { _, todo in
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Image(systemName: todo.icon)
+                                .font(.system(size: 10))
+                                .foregroundStyle(todo.color)
+                                .frame(width: 12)
+                            Text(todo.content)
+                                .font(.system(size: 12))
+                                .foregroundStyle(todo.status == "completed" ? .tertiary : .secondary)
+                                .lineLimit(2)
+                        }
+                        .padding(.vertical, 1)
+                    }
+                }
+                .padding(.leading, 4)
+                .padding(.bottom, 4)
             }
         }
     }

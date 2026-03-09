@@ -150,6 +150,11 @@ final class ConversationState: Identifiable {
     /// Last prompt sent to CLI, kept for session-not-found retry.
     private var lastPrompt: String = ""
 
+    /// Buffers for frame-rate batching of streaming deltas (~60fps).
+    @ObservationIgnored private var textDeltaBuffer = ""
+    @ObservationIgnored private var thinkingDeltaBuffer = ""
+    @ObservationIgnored private var flushScheduled = false
+
     /// Messages queued while streaming. Displayed as cards above the composer;
     /// moved into `messages` when actually sent.
     var pendingMessages: [PendingMessage] = []
@@ -337,6 +342,7 @@ final class ConversationState: Identifiable {
     }
 
     func stop() {
+        flushBuffers()
         processManager.stop()
         isStreaming = false
         // Clean up empty assistant message if no content was received
@@ -356,6 +362,54 @@ final class ConversationState: Identifiable {
     }
 
     // MARK: - Event handling
+
+    private func scheduleFlush(generation: Int) {
+        guard !flushScheduled else { return }
+        flushScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.016) { [weak self] in
+            guard let self else { return }
+            self.flushScheduled = false
+            guard generation == self.eventGeneration else {
+                self.textDeltaBuffer = ""
+                self.thinkingDeltaBuffer = ""
+                return
+            }
+            self.flushBuffers()
+        }
+    }
+
+    private func flushBuffers() {
+        flushScheduled = false
+        guard !textDeltaBuffer.isEmpty || !thinkingDeltaBuffer.isEmpty else { return }
+
+        let idx = targetAssistantIndex
+        guard idx >= 0 && idx < messages.count else {
+            textDeltaBuffer = ""
+            thinkingDeltaBuffer = ""
+            return
+        }
+
+        if !thinkingDeltaBuffer.isEmpty {
+            let blockCount = messages[idx].blocks.count
+            if blockCount > 0,
+               case .thinking(var content) = messages[idx].blocks[blockCount - 1] {
+                content.text += thinkingDeltaBuffer
+                messages[idx].blocks[blockCount - 1] = .thinking(content)
+            }
+            thinkingDeltaBuffer = ""
+        }
+
+        if !textDeltaBuffer.isEmpty {
+            completeOpenThinkingBlocks(at: idx)
+            if case .text(var content) = messages[idx].blocks.last {
+                content.text += textDeltaBuffer
+                messages[idx].blocks[messages[idx].blocks.count - 1] = .text(content)
+            } else {
+                messages[idx].blocks.append(.text(TextContent(text: textDeltaBuffer)))
+            }
+            textDeltaBuffer = ""
+        }
+    }
 
     /// Mark all incomplete thinking blocks as complete in the given message.
     private func completeOpenThinkingBlocks(at msgIdx: Int) {
@@ -382,6 +436,20 @@ final class ConversationState: Identifiable {
         // Discard events from a previous (stale) process
         guard generation == eventGeneration else { return }
 
+        // Buffer high-frequency deltas for frame-rate flushing (~60fps)
+        switch event {
+        case .textDelta(let text):
+            textDeltaBuffer += text
+            scheduleFlush(generation: generation)
+            return
+        case .thinkingDelta(let text):
+            thinkingDeltaBuffer += text
+            scheduleFlush(generation: generation)
+            return
+        default:
+            flushBuffers()
+        }
+
         let idx = targetAssistantIndex
         guard idx >= 0 && idx < messages.count else { return }
 
@@ -406,14 +474,8 @@ final class ConversationState: Identifiable {
             }
             refreshGitBranch()
 
-        case .textDelta(let text):
-            completeOpenThinkingBlocks(at: idx)
-            if case .text(var content) = messages[idx].blocks.last {
-                content.text += text
-                messages[idx].blocks[messages[idx].blocks.count - 1] = .text(content)
-            } else {
-                messages[idx].blocks.append(.text(TextContent(text: text)))
-            }
+        case .textDelta, .thinkingDelta:
+            break // handled by frame-rate buffer above
 
         case .toolUseStart(_, let id, let name):
             completeOpenThinkingBlocks(at: idx)
@@ -424,15 +486,6 @@ final class ConversationState: Identifiable {
             if name == "EnterPlanMode" && interactionMode != .plan {
                 interactionMode = .plan
                 processManager.discardPrewarm()
-            }
-
-        case .thinkingDelta(let text):
-            // Append to current thinking block
-            let blockCount = messages[idx].blocks.count
-            if blockCount > 0,
-               case .thinking(var content) = messages[idx].blocks[blockCount - 1] {
-                content.text += text
-                messages[idx].blocks[blockCount - 1] = .thinking(content)
             }
 
         case .contentBlockStop:

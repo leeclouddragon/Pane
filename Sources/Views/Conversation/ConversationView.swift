@@ -177,9 +177,12 @@ struct ConversationView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(conversation.messages) { message in
-                            MessageView(message: message)
-                                .id(message.id)
+                        ForEach(Array(conversation.messages.enumerated()), id: \.element.id) { index, message in
+                            MessageView(
+                                message: message,
+                                isStreaming: conversation.isStreaming && index == conversation.messages.count - 1
+                            )
+                            .id(message.id)
                         }
                         if conversation.isCompacting {
                             CompactingIndicator()
@@ -314,7 +317,6 @@ struct ConversationView: View {
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
-        // Defer to next run loop so layout is finalized before scrolling
         DispatchQueue.main.async {
             proxy.scrollTo("bottom", anchor: .bottom)
         }
