@@ -13,6 +13,7 @@ struct PaneApp: App {
     init() {
         // SPM executable needs manual activation to show windows and dock icon
         NSApplication.shared.setActivationPolicy(.regular)
+        NSApplication.shared.applicationIconImage = AppIconArtwork.makeImage()
         NSApplication.shared.activate(ignoringOtherApps: true)
 
         let provider = ProviderState()

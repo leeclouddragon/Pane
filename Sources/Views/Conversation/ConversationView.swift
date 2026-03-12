@@ -71,8 +71,7 @@ struct ConversationView: View {
             VStack(spacing: 24) {
                 // Logo
                 VStack(spacing: 8) {
-                    ComposeIconView(size: 36)
-                        .foregroundStyle(.secondary)
+                    AppIconView(size: 64)
 
                     Text("Pane")
                         .font(.system(size: 16, weight: .semibold))

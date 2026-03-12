@@ -1,5 +1,16 @@
 import SwiftUI
 
+struct AppIconView: View {
+    var size: CGFloat = 64
+
+    var body: some View {
+        Image(nsImage: AppIconArtwork.makeImage(size: max(size * 4, 256)))
+            .resizable()
+            .interpolation(.high)
+            .frame(width: size, height: size)
+    }
+}
+
 struct ComposeIconView: View {
     var size: CGFloat = 16
 

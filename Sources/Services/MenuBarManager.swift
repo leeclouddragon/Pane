@@ -14,11 +14,7 @@ final class MenuBarManager: NSObject, NSMenuDelegate {
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = item.button {
-            let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-            let image = NSImage(systemSymbolName: "ellipsis.message", accessibilityDescription: "Pane")?
-                .withSymbolConfiguration(config)
-            image?.isTemplate = true
-            button.image = image
+            button.image = AppIconArtwork.makeMenuBarImage()
             button.toolTip = "Pane"
         }
 
