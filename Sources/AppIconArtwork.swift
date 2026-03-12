@@ -13,7 +13,7 @@ enum AppIconArtwork {
         return image
     }
 
-    /// Menu bar template image: monochrome pixel apple silhouette.
+    /// Menu bar colored pixel apple (not template — preserves shading).
     static func makeMenuBarImage() -> NSImage {
         let size: CGFloat = 18
         let image = NSImage(size: NSSize(width: size, height: size))
@@ -21,29 +21,40 @@ enum AppIconArtwork {
         if let context = NSGraphicsContext.current?.cgContext {
             context.setShouldAntialias(false)
             context.interpolationQuality = .none
-            context.setFillColor(NSColor.black.cgColor)
             let s = size / 18.0
-            func px(_ x: Int, _ y: Int, _ w: Int = 1, _ h: Int = 1) {
+            func px(_ x: Int, _ y: Int, _ w: Int = 1, _ h: Int = 1, _ hex: Int) {
+                let r = CGFloat((hex >> 16) & 0xFF) / 255
+                let g = CGFloat((hex >> 8) & 0xFF) / 255
+                let b = CGFloat(hex & 0xFF) / 255
+                context.setFillColor(CGColor(srgbRed: r, green: g, blue: b, alpha: 1))
                 context.fill(CGRect(
                     x: CGFloat(x) * s, y: CGFloat(18 - y - h) * s,
                     width: CGFloat(w) * s, height: CGFloat(h) * s
                 ))
             }
             // Stem
-            px(8, 2, 2, 2)
+            px(8, 1, 2, 2, 0x7A4F2A)
             // Leaf
-            px(10, 2, 2, 1)
-            px(11, 3, 2, 1)
-            // Apple body
-            px(6, 4, 3, 1); px(10, 4, 3, 1) // dimple
-            px(5, 5, 9, 1)
-            px(4, 6, 11, 5) // rows 6-10
-            px(5, 11, 9, 1)
-            px(6, 12, 7, 1)
-            px(7, 13, 5, 1)
+            px(10, 1, 2, 1, 0x6A9B43)
+            px(11, 2, 2, 1, 0x46712D)
+            // Apple outline (dark red)
+            px(4, 3, 5, 1, 0x8E1F1B); px(10, 3, 5, 1, 0x8E1F1B)
+            px(3, 4, 13, 1, 0x8E1F1B)
+            px(2, 5, 15, 7, 0x8E1F1B)
+            px(3, 12, 13, 1, 0x8E1F1B)
+            px(4, 13, 11, 1, 0x8E1F1B)
+            px(5, 14, 9, 1, 0x8E1F1B)
+            px(7, 15, 5, 1, 0x8E1F1B)
+            // Apple fill (bright red)
+            px(4, 4, 11, 1, 0xE03333)
+            px(3, 5, 13, 7, 0xE03333)
+            px(4, 12, 11, 1, 0xE03333)
+            px(5, 13, 9, 1, 0xE03333)
+            px(7, 14, 5, 1, 0xE03333)
+            // Highlight
+            px(14, 6, 1, 3, 0xF09888)
         }
         image.unlockFocus()
-        image.isTemplate = true
         return image
     }
 
