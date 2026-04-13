@@ -1,0 +1,66 @@
+name: Repo Hygiene
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  prevent-generated-artifacts:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve diff range
+        id: range
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "base=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+            echo "head=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "base=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
+            echo "head=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Block generated build artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          base="${{ steps.range.outputs.base }}"
+          head="${{ steps.range.outputs.head }}"
+
+          mapfile -t changed_files < <(git diff --name-only --diff-filter=AMR "$base" "$head")
+
+          if [[ ${#changed_files[@]} -eq 0 ]]; then
+            echo "No added or modified files to check."
+            exit 0
+          fi
+
+          violations=()
+
+          for file in "${changed_files[@]}"; do
+            if [[ "$file" == dist/* ]] \
+              || [[ "$file" == *.app ]] \
+              || [[ "$file" == *.app/* ]] \
+              || [[ "$file" == *.dmg ]] \
+              || [[ "$file" == *.zip ]] \
+              || [[ "$file" == "AppIcon-preview.png" ]]; then
+              violations+=("$file")
+            fi
+          done
+
+          if [[ ${#violations[@]} -gt 0 ]]; then
+            echo "Generated build artifacts should not be committed."
+            echo "Upload release bundles to GitHub Releases or another artifact store instead."
+            printf ' - %s\n' "${violations[@]}"
+            exit 1
+          fi
+
+          echo "Artifact check passed."
